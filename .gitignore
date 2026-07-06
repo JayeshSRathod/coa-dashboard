@@ -1,0 +1,18 @@
+# Trading data — this is local runtime state, not source code
+coa_trading_ledger.db
+*.db
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+
+# Secrets — never commit real API keys
+.env
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+.vscode/settings.json
