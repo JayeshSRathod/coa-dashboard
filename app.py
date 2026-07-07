@@ -21,6 +21,7 @@ from engine.data_feed import get_option_chain
 from db.ledger import (
     init_db, open_trade, get_active_trade, close_trade,
     get_trade_history, get_monthly_summary, get_scenario_stats,
+    add_journal_note, get_journal_notes,
 )
 
 st.set_page_config(page_title="COA Dashboard", layout="wide")
@@ -39,9 +40,18 @@ history_days = st.sidebar.slider("History window (days)", 7, 90, 30)
 auto_refresh = st.sidebar.checkbox("Auto-refresh (10s)", value=False)
 
 if selected_index == "NIFTY 50":
-    index_ticker, index_spot, step_size = "NSE_INDEX|Nifty 50", 24440.85, 50
+    index_ticker, default_spot, step_size = "NSE_INDEX|Nifty 50", 24440.85, 50
 else:
-    index_ticker, index_spot, step_size = "NSE_INDEX|Nifty Bank", 51820.40, 100
+    index_ticker, default_spot, step_size = "NSE_INDEX|Nifty Bank", 51820.40, 100
+
+st.sidebar.markdown("---")
+index_spot = st.sidebar.number_input(
+    "Current spot (type today's real value)",
+    value=float(default_spot), step=0.05, format="%.2f",
+    help="Until the real broker feed is wired in, enter the actual live "
+         "spot from your broker app or NSE each time you check in — this "
+         "is what makes the signals below reflect the real market.",
+)
 
 page = st.sidebar.radio("View", ["Live signals", "Trade history"])
 
@@ -203,6 +213,27 @@ if page == "Live signals":
                 })
                 st.rerun()
 
+    st.markdown("---")
+
+    # --- Daily check-in journal ---
+    st.subheader("Daily check-in note")
+    st.caption("Jot why you did or didn't take today's signal — this context is what "
+               "makes the monthly review actually useful.")
+    with st.form("journal_form", clear_on_submit=True):
+        action = st.selectbox("What did you do?",
+                               ["Took the signal", "Skipped it", "Already in a trade", "Just observing"])
+        note_text = st.text_area("Why?", placeholder="e.g. Ratio was borderline at 79%, waited for confirmation")
+        submitted = st.form_submit_button("Save note")
+        if submitted and note_text.strip():
+            add_journal_note(index_spot, metrics["scenario"], action, note_text.strip())
+            st.success("Saved.")
+
+    recent_notes = get_journal_notes(days=7)
+    if not recent_notes.empty:
+        with st.expander(f"Last 7 days' notes ({len(recent_notes)})"):
+            for _, n in recent_notes.iterrows():
+                st.markdown(f"**{n['timestamp']}** · spot {n['spot']:.2f} · _{n['action_taken']}_  \n{n['note']}")
+
     if auto_refresh:
         st.rerun()
 
@@ -252,3 +283,14 @@ else:
                      "strike_traded", "scenario", "lots", "entry_spot", "exit_spot",
                      "sl_spot", "t1_spot", "t2_spot", "exit_reason", "net_pnl"]
         st.dataframe(hist_df[show_cols], use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Daily check-in journal")
+    journal_df = get_journal_notes(days=history_days)
+    if journal_df.empty:
+        st.info("No journal notes yet in this window.")
+    else:
+        st.dataframe(
+            journal_df[["timestamp", "spot", "scenario", "action_taken", "note"]],
+            use_container_width=True,
+        )
