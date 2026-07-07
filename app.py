@@ -18,7 +18,8 @@ import plotly.express as px
 
 from engine.coa_math import analyze_coa_matrix_structure, compute_final_lots
 from engine.data_feed import get_option_chain
-from engine.instruments import get_instrument, instrument_names
+from engine.instruments import get_instrument, instrument_names, INSTRUMENTS
+from engine.momentum import compute_totals, compute_momentum, make_snapshot
 from db.ledger import (
     init_db, open_trade, get_active_trade, close_trade,
     get_trade_history, get_monthly_summary, get_scenario_stats,
@@ -30,6 +31,12 @@ init_db()
 
 if "prev_chain" not in st.session_state:
     st.session_state.prev_chain = None
+
+if "momentum_snapshots" not in st.session_state:
+    st.session_state.momentum_snapshots = {}
+
+if "momentum_spots" not in st.session_state:
+    st.session_state.momentum_spots = {name: cfg["default_spot"] for name, cfg in INSTRUMENTS.items()}
 
 # ---------------------------------------------------------------------------
 # SIDEBAR
@@ -55,7 +62,7 @@ index_spot = st.sidebar.number_input(
          "this is what makes the signals below reflect the real market.",
 )
 
-page = st.sidebar.radio("View", ["Live signals", "Trade history"])
+page = st.sidebar.radio("View", ["Live signals", "Momentum leaderboard", "Trade history"])
 
 # ---------------------------------------------------------------------------
 # DATA PULL + COA CALCULATION
@@ -238,6 +245,66 @@ if page == "Live signals":
 
     if auto_refresh:
         st.rerun()
+
+# ---------------------------------------------------------------------------
+# MOMENTUM LEADERBOARD PAGE
+# ---------------------------------------------------------------------------
+elif page == "Momentum leaderboard":
+    st.title("Momentum leaderboard")
+    st.caption(
+        "Ranks instruments by how much is changing right now — price movement, "
+        "OI buildup, volume surge, and how fast the WTT/WTB ratio is shifting. "
+        "This surfaces where the most is happening; it doesn't tell you what to "
+        "do about it — that's still your call."
+    )
+
+    st.markdown("---")
+    st.write("Enter today's real spot for each instrument to refresh the leaderboard:")
+
+    spot_cols = st.columns(len(INSTRUMENTS))
+    for col, (name, cfg) in zip(spot_cols, INSTRUMENTS.items()):
+        st.session_state.momentum_spots[name] = col.number_input(
+            name, value=float(st.session_state.momentum_spots[name]),
+            step=0.05, format="%.2f", key=f"mom_spot_{name}",
+        )
+
+    if st.button("Refresh leaderboard"):
+        rows = []
+        for name, cfg in INSTRUMENTS.items():
+            spot = st.session_state.momentum_spots[name]
+            chain = get_option_chain(cfg["ticker"], spot, cfg["step_size"])
+            m = analyze_coa_matrix_structure(chain, spot, cfg["step_size"])
+            totals = compute_totals(chain)
+            prev = st.session_state.momentum_snapshots.get(name)
+            mom = compute_momentum(m, totals, prev, spot)
+            st.session_state.momentum_snapshots[name] = make_snapshot(m, totals, spot)
+
+            rows.append({
+                "Instrument": name,
+                "Spot": spot,
+                "Scenario": m["scenario"],
+                "Risk mode": m["risk_mode"],
+                "Price ROC %": mom["roc"],
+                "OI change %": mom["oi_change_pct"],
+                "Volume change %": mom["vol_change_pct"],
+                "Ratio velocity (pp)": mom["ratio_velocity"],
+                "Momentum score": mom["score"],
+            })
+
+        board_df = pd.DataFrame(rows).sort_values("Momentum score", ascending=False).reset_index(drop=True)
+        st.markdown("---")
+        st.subheader("Ranked by momentum score")
+        st.dataframe(
+            board_df.style.background_gradient(subset=["Momentum score"], cmap="Oranges"),
+            use_container_width=True,
+        )
+        if board_df.iloc[0]["Momentum score"] == 0:
+            st.info("All scores are 0 — this is the first poll for these instruments this "
+                     "session. Refresh again after the real market has moved to see scores populate.")
+    else:
+        st.info("Enter spots above and tap Refresh to compute the first snapshot. "
+                "Scores appear from the second refresh onward, once there's a prior "
+                "point to compare against.")
 
 # ---------------------------------------------------------------------------
 # TRADE HISTORY PAGE
