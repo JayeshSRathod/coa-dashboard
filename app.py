@@ -184,7 +184,7 @@ if page == "Live signals":
                     "ticker": selected_index, "trade_type": "CALL",
                     "strike_traded": f"{int(metrics['base_strike'] - step_size)} CE",
                     "scenario": metrics["scenario"], "lots": final_lots,
-                    "entry_spot": index_spot, "sl_spot": metrics["eos"] - step_size * 0.4,
+                    "entry_spot": metrics["eos"], "sl_spot": metrics["eos"] - step_size * 0.4,
                     "t1_spot": metrics["eos"] + step_size, "t2_spot": metrics["eor"],
                 })
                 st.rerun()
@@ -198,7 +198,7 @@ if page == "Live signals":
                     "ticker": selected_index, "trade_type": "PUT",
                     "strike_traded": f"{int(metrics['strike_above'] + step_size)} PE",
                     "scenario": metrics["scenario"], "lots": final_lots,
-                    "entry_spot": index_spot, "sl_spot": metrics["eor"] + step_size * 0.4,
+                    "entry_spot": metrics["eor"], "sl_spot": metrics["eor"] + step_size * 0.4,
                     "t1_spot": metrics["eor"] - step_size, "t2_spot": metrics["eos"],
                 })
                 st.rerun()
