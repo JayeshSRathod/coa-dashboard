@@ -18,6 +18,26 @@ supporting context.
 """
 
 
+def compute_hottest_strike(chain_df) -> dict:
+    """
+    Finds the single most active strike in a chain snapshot — the one cell
+    (Call or Put) with the highest volume. Needs no prior snapshot, unlike
+    the momentum score, so this can be shown immediately on every load.
+    """
+    call_row = chain_df.loc[chain_df["Call_Vol"].idxmax()]
+    put_row = chain_df.loc[chain_df["Put_Vol"].idxmax()]
+
+    if call_row["Call_Vol"] >= put_row["Put_Vol"]:
+        return {
+            "strike": int(call_row["Strike"]), "type": "CE",
+            "volume": float(call_row["Call_Vol"]), "oi": float(call_row["Call_OI"]),
+        }
+    return {
+        "strike": int(put_row["Strike"]), "type": "PE",
+        "volume": float(put_row["Put_Vol"]), "oi": float(put_row["Put_OI"]),
+    }
+
+
 def compute_totals(chain_df) -> dict:
     """Aggregate chain-wide totals used as the momentum baseline."""
     return {
