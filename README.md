@@ -62,6 +62,27 @@ COA_Dashboard/
   `requirements.txt` automatically and gives you a public URL that also
   works fine on a phone browser.
 
+## Setting up Telegram alerts
+
+1. **Create a bot**: open Telegram, message **@BotFather**, send `/newbot`, follow the
+   prompts. It gives you a **bot token** (looks like `123456789:AAF...`).
+2. **Get your chat ID**: message your new bot anything first (so it has a
+   conversation to reply to), then visit in a browser:
+   `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+   Look for `"chat":{"id": ...}` in the response — that number is your chat ID.
+3. **Add credentials to secrets**:
+   - Locally: copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`
+     and fill in the real `bot_token` and `chat_id` under `[telegram]`
+   - On Streamlit Cloud: paste the same content into **App settings → Secrets**
+     (never commit the real values to GitHub)
+4. Reboot the app. The sidebar should show **"Bot configured"** — tap
+   **"Send test alert"** to confirm it reaches your phone, then flip on
+   **"Enable alerts"**.
+
+You'll get a Telegram message when: the scenario changes for the currently
+selected instrument, a CALL/PUT position is opened, and when a trade is
+closed (T1/T2 hit or force square-off).
+
 ## Going live (real broker data)
 
 Everything routes through `engine/data_feed.py:get_option_chain()`. Replace
