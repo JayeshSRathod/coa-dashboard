@@ -39,8 +39,42 @@ def init_db(db_path: str = DB_PATH) -> None:
             status TEXT NOT NULL DEFAULT 'OPEN'
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS journal_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            spot REAL,
+            scenario TEXT,
+            action_taken TEXT,
+            note TEXT
+        )
+    """)
     conn.commit()
     conn.close()
+
+
+def add_journal_note(spot: float, scenario: str, action_taken: str,
+                      note: str, db_path: str = DB_PATH) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        INSERT INTO journal_notes (timestamp, spot, scenario, action_taken, note)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        spot, scenario, action_taken, note,
+    ))
+    conn.commit()
+    conn.close()
+
+
+def get_journal_notes(days: int = 30, db_path: str = DB_PATH) -> pd.DataFrame:
+    conn = sqlite3.connect(db_path)
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    df = pd.read_sql_query("""
+        SELECT * FROM journal_notes WHERE timestamp >= ? ORDER BY id DESC
+    """, conn, params=(cutoff,))
+    conn.close()
+    return df
 
 
 def open_trade(record: dict, db_path: str = DB_PATH) -> int:
