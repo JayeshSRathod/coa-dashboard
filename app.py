@@ -19,7 +19,7 @@ import plotly.express as px
 from engine.coa_math import analyze_coa_matrix_structure, compute_final_lots
 from engine.data_feed import get_option_chain
 from engine.instruments import get_instrument, instrument_names, INSTRUMENTS
-from engine.momentum import compute_totals, compute_momentum, make_snapshot
+from engine.momentum import compute_totals, compute_momentum, make_snapshot, compute_hottest_strike
 from db.ledger import (
     init_db, open_trade, get_active_trade, close_trade,
     get_trade_history, get_monthly_summary, get_scenario_stats,
@@ -268,6 +268,34 @@ elif page == "Momentum leaderboard":
             step=0.05, format="%.2f", key=f"mom_spot_{name}",
         )
 
+    # --- Hottest strike, auto-populated, no button needed ---
+    # This needs no prior snapshot (unlike momentum score below), so it
+    # refreshes immediately whenever a spot value changes.
+    st.markdown("---")
+    st.subheader("🔥 Most active strike right now")
+    hottest_rows = []
+    for name, cfg in INSTRUMENTS.items():
+        spot = st.session_state.momentum_spots[name]
+        chain = get_option_chain(cfg["ticker"], spot, cfg["step_size"])
+        hot = compute_hottest_strike(chain)
+        hottest_rows.append({
+            "Instrument": name,
+            "Hottest strike": f"{hot['strike']} {hot['type']}",
+            "Volume": hot["volume"],
+            "OI": hot["oi"],
+        })
+
+    hottest_df = pd.DataFrame(hottest_rows).sort_values("Volume", ascending=False).reset_index(drop=True)
+    top = hottest_df.iloc[0]
+    st.success(f"**{top['Instrument']} {top['Hottest strike']}** is the most active option "
+               f"across all watched indices right now — volume {top['Volume']:,.0f}")
+    st.dataframe(
+        hottest_df.style.format({"Volume": "{:,.0f}", "OI": "{:,.0f}"}),
+        use_container_width=True,
+    )
+
+    st.markdown("---")
+    st.subheader("Momentum score (needs at least two check-ins to populate)")
     if st.button("Refresh leaderboard"):
         rows = []
         for name, cfg in INSTRUMENTS.items():
