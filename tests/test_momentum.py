@@ -3,14 +3,26 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pandas as pd
-from engine.momentum import compute_totals, compute_momentum, make_snapshot
+from engine.momentum import compute_totals, compute_momentum, make_snapshot, compute_hottest_strike
 
 
 def make_chain(call_vol=1000, put_vol=1000, oi=500):
     return pd.DataFrame([
-        {"Call_Vol": call_vol, "Put_Vol": put_vol, "Call_OI": oi, "Put_OI": oi},
-        {"Call_Vol": call_vol, "Put_Vol": put_vol, "Call_OI": oi, "Put_OI": oi},
+        {"Strike": 24300, "Call_Vol": call_vol, "Put_Vol": put_vol, "Call_OI": oi, "Put_OI": oi},
+        {"Strike": 24350, "Call_Vol": call_vol, "Put_Vol": put_vol, "Call_OI": oi, "Put_OI": oi},
     ])
+
+
+def test_hottest_strike_picks_max_cell():
+    df = pd.DataFrame([
+        {"Strike": 24300, "Call_Vol": 500000, "Put_Vol": 200000, "Call_OI": 1000, "Put_OI": 800},
+        {"Strike": 24350, "Call_Vol": 300000, "Put_Vol": 900000, "Call_OI": 700, "Put_OI": 2200},
+    ])
+    hottest = compute_hottest_strike(df)
+    assert hottest["strike"] == 24350
+    assert hottest["type"] == "PE"
+    assert hottest["volume"] == 900000
+    print("hottest strike detection OK:", hottest)
 
 
 def test_first_poll_scores_zero():
@@ -47,4 +59,5 @@ if __name__ == "__main__":
     test_first_poll_scores_zero()
     test_price_move_increases_score()
     test_higher_move_scores_higher()
+    test_hottest_strike_picks_max_cell()
     print("All momentum tests passed.")
