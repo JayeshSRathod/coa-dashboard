@@ -18,6 +18,7 @@ import plotly.express as px
 
 from engine.coa_math import analyze_coa_matrix_structure, compute_final_lots
 from engine.data_feed import get_option_chain
+from engine.instruments import get_instrument, instrument_names
 from db.ledger import (
     init_db, open_trade, get_active_trade, close_trade,
     get_trade_history, get_monthly_summary, get_scenario_stats,
@@ -34,23 +35,24 @@ if "prev_chain" not in st.session_state:
 # SIDEBAR
 # ---------------------------------------------------------------------------
 st.sidebar.title("COA controls")
-selected_index = st.sidebar.selectbox("Index", ["NIFTY 50", "BANK NIFTY"])
+selected_index = st.sidebar.selectbox("Index", instrument_names())
 base_lots = st.sidebar.slider("Base lot size", 1, 20, 4)
 history_days = st.sidebar.slider("History window (days)", 7, 90, 30)
 auto_refresh = st.sidebar.checkbox("Auto-refresh (10s)", value=False)
 
-if selected_index == "NIFTY 50":
-    index_ticker, default_spot, step_size = "NSE_INDEX|Nifty 50", 24440.85, 50
-else:
-    index_ticker, default_spot, step_size = "NSE_INDEX|Nifty Bank", 51820.40, 100
+instrument = get_instrument(selected_index)
+index_ticker = instrument["ticker"]
+step_size = instrument["step_size"]
+default_spot = instrument["default_spot"]
 
+st.sidebar.caption(f"{instrument['exchange']} · {instrument['expiry_type']} expiry")
 st.sidebar.markdown("---")
 index_spot = st.sidebar.number_input(
     "Current spot (type today's real value)",
     value=float(default_spot), step=0.05, format="%.2f",
     help="Until the real broker feed is wired in, enter the actual live "
-         "spot from your broker app or NSE each time you check in — this "
-         "is what makes the signals below reflect the real market.",
+         "spot from your broker app or NSE/BSE each time you check in — "
+         "this is what makes the signals below reflect the real market.",
 )
 
 page = st.sidebar.radio("View", ["Live signals", "Trade history"])
@@ -283,6 +285,12 @@ else:
                      "strike_traded", "scenario", "lots", "entry_spot", "exit_spot",
                      "sl_spot", "t1_spot", "t2_spot", "exit_reason", "net_pnl"]
         st.dataframe(hist_df[show_cols], use_container_width=True)
+        st.download_button(
+            "Download trade history (CSV)",
+            data=hist_df[show_cols].to_csv(index=False).encode("utf-8"),
+            file_name=f"coa_trade_history_{datetime.date.today().isoformat()}.csv",
+            mime="text/csv",
+        )
 
     st.markdown("---")
     st.subheader("Daily check-in journal")
@@ -294,3 +302,17 @@ else:
             journal_df[["timestamp", "spot", "scenario", "action_taken", "note"]],
             use_container_width=True,
         )
+        st.download_button(
+            "Download journal notes (CSV)",
+            data=journal_df[["timestamp", "spot", "scenario", "action_taken", "note"]]
+                 .to_csv(index=False).encode("utf-8"),
+            file_name=f"coa_journal_{datetime.date.today().isoformat()}.csv",
+            mime="text/csv",
+        )
+
+    st.markdown("---")
+    st.caption(
+        "⚠️ Streamlit Cloud does not guarantee this database persists across "
+        "reboots or redeploys. Download a CSV backup regularly — especially "
+        "before pushing code updates — so a month of logging is never at risk."
+    )
