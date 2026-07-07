@@ -20,6 +20,7 @@ from engine.coa_math import analyze_coa_matrix_structure, compute_final_lots
 from engine.data_feed import get_option_chain
 from engine.instruments import get_instrument, instrument_names, INSTRUMENTS
 from engine.momentum import compute_totals, compute_momentum, make_snapshot, compute_hottest_strike
+from engine.notifier import send_telegram_alert, is_telegram_configured
 from db.ledger import (
     init_db, open_trade, get_active_trade, close_trade,
     get_trade_history, get_monthly_summary, get_scenario_stats,
@@ -37,6 +38,9 @@ if "momentum_snapshots" not in st.session_state:
 
 if "momentum_spots" not in st.session_state:
     st.session_state.momentum_spots = {name: cfg["default_spot"] for name, cfg in INSTRUMENTS.items()}
+
+if "last_scenario_by_index" not in st.session_state:
+    st.session_state.last_scenario_by_index = {}
 
 # ---------------------------------------------------------------------------
 # SIDEBAR
@@ -64,12 +68,39 @@ index_spot = st.sidebar.number_input(
 
 page = st.sidebar.radio("View", ["Live signals", "Momentum leaderboard", "Trade history"])
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("Telegram alerts")
+telegram_ready = is_telegram_configured()
+if telegram_ready:
+    st.sidebar.success("Bot configured")
+else:
+    st.sidebar.caption("Not set up yet — see README for setup steps.")
+enable_alerts = st.sidebar.checkbox("Enable alerts", value=False, disabled=not telegram_ready)
+if telegram_ready and st.sidebar.button("Send test alert"):
+    ok = send_telegram_alert("✅ COA Dashboard: test alert. If you see this, alerts are working.")
+    if ok:
+        st.sidebar.success("Sent — check Telegram.")
+    else:
+        st.sidebar.error("Send failed — check bot token/chat ID in secrets.")
+
 # ---------------------------------------------------------------------------
 # DATA PULL + COA CALCULATION
 # ---------------------------------------------------------------------------
 raw_chain_df = get_option_chain(index_ticker, index_spot, step_size)
 metrics = analyze_coa_matrix_structure(raw_chain_df, index_spot, step_size)
 final_lots, execution_permitted = compute_final_lots(base_lots, metrics["risk_mode"])
+
+# Alert on scenario change for the currently selected instrument only —
+# avoids spamming alerts on every rerun by comparing against the last seen value.
+if enable_alerts and telegram_ready:
+    prev_scenario = st.session_state.last_scenario_by_index.get(selected_index)
+    if prev_scenario is not None and prev_scenario != metrics["scenario"]:
+        send_telegram_alert(
+            f"🔔 {selected_index}: scenario changed\n"
+            f"{prev_scenario} → {metrics['scenario']}\n"
+            f"Risk mode: {metrics['risk_mode']} · Spot: {index_spot:,.2f}"
+        )
+    st.session_state.last_scenario_by_index[selected_index] = metrics["scenario"]
 
 
 def build_rationale(m: dict) -> str:
@@ -182,13 +213,19 @@ if page == "Live signals":
             if b1.button("Exit at T1"):
                 pnl = (active["t1_spot"] - active["entry_spot"]) * direction * active["lots"] * 50 * 0.55
                 close_trade(active["id"], active["t1_spot"], "Target 1 reached", pnl)
+                if enable_alerts and telegram_ready:
+                    send_telegram_alert(f"🏆 {active['ticker']} {active['strike_traded']}: T1 hit. P&L ₹{pnl:,.0f}")
                 st.rerun()
             if b2.button("Exit at T2"):
                 pnl = (active["t2_spot"] - active["entry_spot"]) * direction * active["lots"] * 50 * 0.55
                 close_trade(active["id"], active["t2_spot"], "Target 2 reached", pnl)
+                if enable_alerts and telegram_ready:
+                    send_telegram_alert(f"🏆 {active['ticker']} {active['strike_traded']}: T2 hit. P&L ₹{pnl:,.0f}")
                 st.rerun()
             if b3.button("Force square-off"):
                 close_trade(active["id"], current_price, "Manual square-off", loss_if_sl)
+                if enable_alerts and telegram_ready:
+                    send_telegram_alert(f"🛑 {active['ticker']} {active['strike_traded']}: force-closed. P&L ₹{loss_if_sl:,.0f}")
                 st.rerun()
     else:
         st.info("No open position. Standing by for spot to reach EOS/EOR.")
@@ -206,6 +243,12 @@ if page == "Live signals":
                     "entry_spot": metrics["eos"], "sl_spot": metrics["eos"] - step_size * 0.4,
                     "t1_spot": metrics["eos"] + step_size, "t2_spot": metrics["eor"],
                 })
+                if enable_alerts and telegram_ready:
+                    send_telegram_alert(
+                        f"📥 {selected_index}: CALL opened @ {metrics['eos']:.2f}\n"
+                        f"SL {metrics['eos'] - step_size * 0.4:.2f} · T1 {metrics['eos'] + step_size:.2f} · "
+                        f"T2 {metrics['eor']:.2f} · Lots {final_lots}"
+                    )
                 st.rerun()
         with cta2:
             st.markdown(f"**Put setup (resistance side)**  \n"
@@ -220,6 +263,12 @@ if page == "Live signals":
                     "entry_spot": metrics["eor"], "sl_spot": metrics["eor"] + step_size * 0.4,
                     "t1_spot": metrics["eor"] - step_size, "t2_spot": metrics["eos"],
                 })
+                if enable_alerts and telegram_ready:
+                    send_telegram_alert(
+                        f"📥 {selected_index}: PUT opened @ {metrics['eor']:.2f}\n"
+                        f"SL {metrics['eor'] + step_size * 0.4:.2f} · T1 {metrics['eor'] - step_size:.2f} · "
+                        f"T2 {metrics['eos']:.2f} · Lots {final_lots}"
+                    )
                 st.rerun()
 
     st.markdown("---")
