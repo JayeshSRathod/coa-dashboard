@@ -3,5 +3,6 @@ pandas>=2.0
 plotly>=5.20
 matplotlib>=3.7
 requests>=2.31
-# Uncomment when wiring up the real broker feed:
+fyers-apiv3>=3.1.7
+# Uncomment if you revert to Dhan:
 # dhanhq>=2.0
