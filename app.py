@@ -17,7 +17,9 @@ import pandas as pd
 import plotly.express as px
 
 from engine.coa_math import analyze_coa_matrix_structure, compute_final_lots
-from engine.data_feed import get_option_chain
+from engine.data_feed import get_option_chain, get_live_chain, is_dhan_configured
+from engine.fyers_auth import refresh_fyers_access_token, is_fyers_configured
+from engine.fyers_feed import get_live_fyers_chain, fetch_fyers_option_chain_raw
 from engine.instruments import get_instrument, instrument_names, INSTRUMENTS
 from engine.momentum import compute_totals, compute_momentum, make_snapshot, compute_hottest_strike
 from engine.notifier import send_telegram_alert, is_telegram_configured
@@ -29,6 +31,47 @@ from db.ledger import (
 
 st.set_page_config(page_title="COA Dashboard", layout="wide")
 init_db()
+
+
+def get_fyers_access_token() -> str:
+    """
+    Returns a session-cached Fyers access token, refreshing it automatically
+    via refresh_token + PIN if this session doesn't have one yet, or if a
+    previous call flagged it as invalid. This is what avoids the daily
+    manual token paste — refresh happens in code, not in a browser.
+    """
+    if "fyers_access_token" not in st.session_state or st.session_state.get("fyers_token_invalid"):
+        app_id = st.secrets["fyers"]["app_id"]
+        secret_key = st.secrets["fyers"]["secret_key"]
+        refresh_token = st.secrets["fyers"]["refresh_token"]
+        pin = st.secrets["fyers"]["pin"]
+        st.session_state.fyers_access_token = refresh_fyers_access_token(app_id, secret_key, refresh_token, pin)
+        st.session_state.fyers_token_invalid = False
+    return st.session_state.fyers_access_token
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def get_cached_fyers_chain(symbol: str, access_token: str):
+    """
+    Cached for 5 seconds, keyed on (symbol, access_token) — Streamlit reruns
+    the whole script on almost any interaction, so this cache is what keeps
+    the app from firing a fresh network call on every keystroke elsewhere
+    on the page.
+    """
+    app_id = st.secrets["fyers"]["app_id"]
+    return get_live_fyers_chain(app_id, access_token, symbol)
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def get_cached_dhan_chain(security_id: int, segment: str):
+    """
+    Second-tier fallback if Fyers fails. Dhan's Option Chain API allows
+    only 1 request per 3 seconds — this cache protects against Streamlit's
+    frequent reruns hitting that limit.
+    """
+    client_id = st.secrets["dhan"]["client_id"]
+    access_token = st.secrets["dhan"]["access_token"]
+    return get_live_chain(client_id, access_token, security_id, segment)
 
 if "prev_chain" not in st.session_state:
     st.session_state.prev_chain = None
@@ -58,13 +101,74 @@ default_spot = instrument["default_spot"]
 
 st.sidebar.caption(f"{instrument['exchange']} · {instrument['expiry_type']} expiry")
 st.sidebar.markdown("---")
-index_spot = st.sidebar.number_input(
-    "Current spot (type today's real value)",
-    value=float(default_spot), step=0.05, format="%.2f",
-    help="Until the real broker feed is wired in, enter the actual live "
-         "spot from your broker app or NSE/BSE each time you check in — "
-         "this is what makes the signals below reflect the real market.",
-)
+
+fyers_ready = is_fyers_configured()
+dhan_ready = is_dhan_configured()
+use_live_data = False
+live_data_error = None
+live_source_used = None
+show_fyers_debug = False
+
+if fyers_ready or dhan_ready:
+    if fyers_ready and dhan_ready:
+        st.sidebar.caption("Live source priority: Fyers → Dhan → manual")
+    elif fyers_ready:
+        st.sidebar.caption("Live source: Fyers (Dhan not configured as fallback)")
+    else:
+        st.sidebar.caption("Live source: Dhan (Fyers not configured)")
+    use_live_data = st.sidebar.checkbox("Use live data", value=False)
+    if use_live_data and fyers_ready:
+        show_fyers_debug = st.sidebar.checkbox(
+            "Show raw Fyers response (debug)", value=False,
+            help="Shows the exact JSON Fyers returns, so you can verify the "
+                 "spot/OI/volume parsing assumption is correct for your account.",
+        )
+else:
+    st.sidebar.caption("Live data: neither Fyers nor Dhan configured — see README.")
+
+if use_live_data:
+    # Tier 1: Fyers
+    if fyers_ready:
+        try:
+            access_token = get_fyers_access_token()
+            if show_fyers_debug:
+                app_id = st.secrets["fyers"]["app_id"]
+                st.session_state.fyers_debug_raw = fetch_fyers_option_chain_raw(
+                    app_id, access_token, instrument["fyers_symbol"]
+                )
+            raw_chain_df, index_spot = get_cached_fyers_chain(instrument["fyers_symbol"], access_token)
+            live_source_used = "Fyers"
+            st.sidebar.success(f"Live spot (Fyers): {index_spot:,.2f}")
+        except Exception as e:
+            live_data_error = f"Fyers: {e}"
+            st.session_state.fyers_token_invalid = True  # force a fresh refresh next try
+            if dhan_ready:
+                st.sidebar.warning("Fyers fetch failed — trying Dhan fallback...")
+            else:
+                st.sidebar.error("Fyers fetch failed — using manual entry instead.")
+
+    # Tier 2: Dhan, only if Fyers didn't already succeed
+    if live_source_used is None and dhan_ready:
+        try:
+            raw_chain_df, index_spot = get_cached_dhan_chain(instrument["security_id"], instrument["dhan_segment"])
+            live_source_used = "Dhan"
+            st.sidebar.success(f"Live spot (Dhan fallback): {index_spot:,.2f}")
+        except Exception as e:
+            live_data_error = f"{live_data_error + ' | ' if live_data_error else ''}Dhan: {e}"
+            st.sidebar.error("Dhan fallback also failed — using manual entry instead.")
+
+    # Tier 3: manual, if neither live source worked
+    if live_source_used is None:
+        use_live_data = False
+
+if not use_live_data:
+    index_spot = st.sidebar.number_input(
+        "Current spot (type today's real value)",
+        value=float(default_spot), step=0.05, format="%.2f",
+        help="Until the real broker feed is wired in, enter the actual live "
+             "spot from your broker app or NSE/BSE each time you check in — "
+             "this is what makes the signals below reflect the real market.",
+    )
 
 page = st.sidebar.radio("View", ["Live signals", "Momentum leaderboard", "Trade history"])
 
@@ -86,7 +190,10 @@ if telegram_ready and st.sidebar.button("Send test alert"):
 # ---------------------------------------------------------------------------
 # DATA PULL + COA CALCULATION
 # ---------------------------------------------------------------------------
-raw_chain_df = get_option_chain(index_ticker, index_spot, step_size)
+if not use_live_data:
+    raw_chain_df = get_option_chain(index_ticker, index_spot, step_size)
+# else: raw_chain_df and index_spot were already set from the live fetch above
+
 metrics = analyze_coa_matrix_structure(raw_chain_df, index_spot, step_size)
 final_lots, execution_permitted = compute_final_lots(base_lots, metrics["risk_mode"])
 
@@ -118,6 +225,10 @@ def build_rationale(m: dict) -> str:
 # ---------------------------------------------------------------------------
 if page == "Live signals":
     st.title("COA live signals")
+
+    if st.session_state.get("fyers_debug_raw"):
+        with st.expander("🔍 Raw Fyers response (debug)"):
+            st.json(st.session_state.fyers_debug_raw)
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Support wall", f"{int(metrics['support'])}", metrics["support_state"])
