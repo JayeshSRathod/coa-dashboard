@@ -83,12 +83,77 @@ You'll get a Telegram message when: the scenario changes for the currently
 selected instrument, a CALL/PUT position is opened, and when a trade is
 closed (T1/T2 hit or force square-off).
 
+## Setting up live Fyers data (all four indices)
+
+This is a one-time setup with several steps — take them in order.
+
+**1. Create a Fyers API app**
+- Go to [myapi.fyers.in/dashboard](https://myapi.fyers.in/dashboard/), log in, click "Create App"
+- Fill in an App Name and a Redirect URL (any URL works, e.g. `https://www.google.com` — you just need to read the `auth_code` off it once)
+- Save. Note the **App ID** and **Secret Key** it gives you.
+
+**2. Enable TOTP 2FA** (required to log in programmatically)
+- Go to [myaccount.fyers.in/ManageAccount](https://myaccount.fyers.in/ManageAccount)
+- Enable "External 2FA TOTP", scan the QR code with an authenticator app
+
+**3. Generate the initial auth code (one-time, needs a browser)**
+- Using the `fyers-apiv3` Python package, generate a login URL, open it, log in with your Fyers credentials + TOTP, approve the app
+- After approval, you're redirected to your Redirect URL with `auth_code=...` in the address bar — copy that value
+
+**4. Exchange the auth code for a refresh token**
+- Use the auth_code + App ID + Secret Key to call Fyers' token exchange — this returns both an `access_token` (valid ~1 day) and a `refresh_token` (longer-lived)
+- **The `refresh_token` is what you need for secrets** — this is what lets the app get new access tokens automatically without repeating steps 2–3 every day
+
+**5. Add to Streamlit secrets:**
+```toml
+[fyers]
+app_id = "your-real-app-id"
+secret_key = "your-real-secret-key"
+refresh_token = "your-real-refresh-token"
+pin = "your-real-4-digit-pin"
+```
+
+**⚠️ Security note**: this stores your trading PIN in the app's secrets — a
+materially more sensitive credential than an API token, since it's what
+authorizes trades. This is the trade-off for not needing a daily manual
+step. If you'd rather not store the PIN, the alternative is generating a
+fresh `access_token` manually each day and pasting just that (no PIN needed)
+— ask if you'd like that simpler variant instead.
+
+**6.** Reboot the app. If Fyers is configured, the sidebar shows a **"Use
+live data"** checkbox with a caption confirming the priority order
+(**Fyers → Dhan → manual**, if both are set up), plus a **"Show raw Fyers
+response (debug)"** option — turn debug on the first time you test, since
+the exact response parsing was built from community-verified sources
+(Fyers' own docs are a JS app we couldn't fetch directly), not a primary
+source. If the spot price or OI/volume numbers look wrong, the raw view
+will show you why.
+
+**To also enable the Dhan fallback**, add its secrets alongside Fyers'
+(same secrets box):
+```toml
+[dhan]
+client_id = "your-real-dhan-client-id"
+access_token = "your-real-dhan-access-token"
+```
+This requires Dhan's Data API subscription (₹499/month) to actually work —
+if you don't have that active, leave the `[dhan]` section out and the app
+will fall straight to manual entry if Fyers fails, which is a perfectly
+reasonable choice if you'd rather not pay for a fallback you rarely need.
+
+If both live sources fail (or aren't configured), the dashboard
+automatically falls back to manual spot entry rather than crashing.
+
+**Scope note**: the live toggle only affects the Live Signals page for the
+currently selected instrument. The Momentum Leaderboard page still uses
+simulated data for all four instruments.
+
 ## Going live (real broker data)
 
-Everything routes through `engine/data_feed.py:get_option_chain()`. Replace
-its body with a real DhanHQ REST/WebSocket call that returns the same
-columns (`Strike, Call_OI, Call_Vol, Call_LTP, Put_LTP, Put_Vol, Put_OI`) —
-nothing else in the app needs to change.
+Everything routes through `engine/fyers_feed.py:get_live_fyers_chain()` and
+`engine/fyers_auth.py:refresh_fyers_access_token()` for the primary path,
+and `engine/data_feed.py:get_live_chain()` for the Dhan fallback path — both
+are fully wired into `app.py`'s three-tier fallback chain.
 
 Order placement (turning "Open CALL/PUT position" into a real broker order)
 is a separate, higher-risk step — build and test an order-simulation layer
