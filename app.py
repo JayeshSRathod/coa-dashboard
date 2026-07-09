@@ -16,7 +16,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-from engine.coa_math import analyze_coa_matrix_structure, compute_final_lots
+from engine.coa_math import (
+    analyze_coa_matrix_structure, compute_final_lots, smooth_bias,
+    compute_range_target, choose_t1_target, select_otm_strike,
+)
+from engine.proximity import check_proximity
+from engine.coa2_momentum import compute_side_oi_change_pct, classify_line_state, classify_tactical_scenario
+from engine.diversion import detect_diversion
 from engine.data_feed import get_option_chain, get_live_chain, is_dhan_configured
 from engine.fyers_auth import refresh_fyers_access_token, is_fyers_configured
 from engine.fyers_feed import get_live_fyers_chain, fetch_fyers_option_chain_raw
@@ -84,6 +90,28 @@ if "momentum_spots" not in st.session_state:
 
 if "last_scenario_by_index" not in st.session_state:
     st.session_state.last_scenario_by_index = {}
+
+if "bias_history" not in st.session_state:
+    # {instrument_name: {"support": [...], "resistance": [...]}} — raw bias
+    # readings per poll, oldest first, used by smooth_bias() to confirm a
+    # trend only after it persists rather than reacting to a single blip.
+    st.session_state.bias_history = {}
+
+if "coa2_history" not in st.session_state:
+    # {instrument_name: {"call_oi_pct": [...], "put_oi_pct": [...],
+    #  "prev_call_oi": float|None, "prev_put_oi": float|None}}
+    st.session_state.coa2_history = {}
+
+if "diversion_state" not in st.session_state:
+    # {instrument_name: {"prev_support": float|None, "prev_resistance": float|None,
+    #  "active_ur": float|None, "active_us": float|None}}
+    st.session_state.diversion_state = {}
+
+if "proximity_alerted" not in st.session_state:
+    # {instrument_name: {"eos": bool, "eor": bool}} — tracks whether we've
+    # already alerted for the current approach, so it fires once per
+    # approach rather than every rerun while sitting near the level.
+    st.session_state.proximity_alerted = {}
 
 # ---------------------------------------------------------------------------
 # SIDEBAR
@@ -197,6 +225,18 @@ if not use_live_data:
 metrics = analyze_coa_matrix_structure(raw_chain_df, index_spot, step_size)
 final_lots, execution_permitted = compute_final_lots(base_lots, metrics["risk_mode"])
 
+# Track raw bias per poll so smooth_bias() can confirm a trend only after it
+# persists, rather than reacting to a single noisy reading (see coa_math.py).
+if selected_index not in st.session_state.bias_history:
+    st.session_state.bias_history[selected_index] = {"support": [], "resistance": []}
+_hist = st.session_state.bias_history[selected_index]
+_hist["support"].append(metrics["support_bias"])
+_hist["resistance"].append(metrics["resistance_bias"])
+_hist["support"] = _hist["support"][-10:]  # cap so this never grows unbounded
+_hist["resistance"] = _hist["resistance"][-10:]
+confirmed_support_bias = smooth_bias(_hist["support"], min_persistence=2)
+confirmed_resistance_bias = smooth_bias(_hist["resistance"], min_persistence=2)
+
 # Alert on scenario change for the currently selected instrument only —
 # avoids spamming alerts on every rerun by comparing against the last seen value.
 if enable_alerts and telegram_ready:
@@ -208,6 +248,33 @@ if enable_alerts and telegram_ready:
             f"Risk mode: {metrics['risk_mode']} · Spot: {index_spot:,.2f}"
         )
     st.session_state.last_scenario_by_index[selected_index] = metrics["scenario"]
+
+# Proximity check: fires once per approach (edge-triggered), not every
+# rerun while spot happens to be sitting near the level.
+if selected_index not in st.session_state.proximity_alerted:
+    st.session_state.proximity_alerted[selected_index] = {"eos": False, "eor": False}
+_prox_state = st.session_state.proximity_alerted[selected_index]
+proximity = check_proximity(index_spot, metrics["eos"], metrics["eor"], threshold=5.0)
+
+if proximity["near_eos"] and not _prox_state["eos"]:
+    _prox_state["eos"] = True
+    if enable_alerts and telegram_ready:
+        send_telegram_alert(
+            f"⚡ {selected_index}: spot within 5 points of EOS ({metrics['eos']:.2f})\n"
+            f"Current spot: {index_spot:,.2f}"
+        )
+elif not proximity["near_eos"]:
+    _prox_state["eos"] = False  # reset once it moves away, so a future approach can re-alert
+
+if proximity["near_eor"] and not _prox_state["eor"]:
+    _prox_state["eor"] = True
+    if enable_alerts and telegram_ready:
+        send_telegram_alert(
+            f"⚡ {selected_index}: spot within 5 points of EOR ({metrics['eor']:.2f})\n"
+            f"Current spot: {index_spot:,.2f}"
+        )
+elif not proximity["near_eor"]:
+    _prox_state["eor"] = False
 
 
 def build_rationale(m: dict) -> str:
@@ -232,7 +299,11 @@ if page == "Live signals":
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Support wall", f"{int(metrics['support'])}", metrics["support_state"])
+    c1.caption(f"Confirmed trend: {confirmed_support_bias.title()}"
+               + (" (still confirming)" if confirmed_support_bias != metrics["support_bias"] else ""))
     c2.metric("Resistance wall", f"{int(metrics['resistance'])}", metrics["resistance_state"])
+    c2.caption(f"Confirmed trend: {confirmed_resistance_bias.title()}"
+               + (" (still confirming)" if confirmed_resistance_bias != metrics["resistance_bias"] else ""))
     c3.metric("Risk mode", metrics["risk_mode"], f"{final_lots} lots" if execution_permitted else "halted")
 
     if metrics["risk_mode"] == "HALT_TRADING":
@@ -240,6 +311,51 @@ if page == "Live signals":
     else:
         st.success(f"{metrics['scenario']}")
     st.caption(build_rationale(metrics))
+
+    if proximity["near_eos"]:
+        st.warning(f"⚡ **Approaching EOS** — spot ({index_spot:,.2f}) is within "
+                   f"{proximity['dist_to_eos']:.1f} points of {metrics['eos']:.2f}. Watch closely.")
+    if proximity["near_eor"]:
+        st.warning(f"⚡ **Approaching EOR** — spot ({index_spot:,.2f}) is within "
+                   f"{proximity['dist_to_eor']:.1f} points of {metrics['eor']:.2f}. Watch closely.")
+
+    with st.expander("How EOS/EOR were calculated"):
+        st.write(
+            f"**Support strike:** {int(metrics['support'])}  \n"
+            f"**Resistance strike:** {int(metrics['resistance'])}"
+        )
+
+        m1, m2 = st.columns(2)
+        with m1:
+            st.markdown("**Method A — ATM straddle average** (current default)")
+            st.write(
+                f"ATM Call LTP: ₹{metrics['atm_call_ltp']:.2f}  \n"
+                f"ATM Put LTP: ₹{metrics['atm_put_ltp']:.2f}  \n"
+                f"Avg premium: ₹{metrics['avg_premium']:.2f}  \n"
+                f"EOS = {int(metrics['support'])} − {metrics['avg_premium']:.2f} = **{metrics['eos']:.2f}**  \n"
+                f"EOR = {int(metrics['resistance'])} + {metrics['avg_premium']:.2f} = **{metrics['eor']:.2f}**"
+            )
+        with m2:
+            st.markdown("**Method B — primary strike's own LTP**")
+            st.write(
+                f"Put LTP at support strike: ₹{metrics['support_ltp_at_s1']:.2f}  \n"
+                f"Call LTP at resistance strike: ₹{metrics['resistance_ltp_at_r1']:.2f}  \n"
+                f"&nbsp;  \n"
+                f"EOS = {int(metrics['support'])} − {metrics['support_ltp_at_s1']:.2f} = **{metrics['eos_alt']:.2f}**  \n"
+                f"EOR = {int(metrics['resistance'])} + {metrics['resistance_ltp_at_r1']:.2f} = **{metrics['eor_alt']:.2f}**"
+            )
+
+        eos_diff = metrics["eos"] - metrics["eos_alt"]
+        eor_diff = metrics["eor"] - metrics["eor_alt"]
+        st.caption(
+            f"Difference: EOS {eos_diff:+.2f} pts · EOR {eor_diff:+.2f} pts between methods. "
+            "The dashboard trades off Method A by default — watch both against real price "
+            "reactions over time to see which tracks more closely for your instruments."
+        )
+        st.caption(
+            "If either LTP looks stale, zero, or off from what your broker shows, "
+            "that's the sign to check the data source rather than trust either method blindly."
+        )
 
     st.markdown("---")
 
@@ -282,6 +398,88 @@ if page == "Live signals":
 
     st.markdown("---")
 
+    # --- COA 2.0: intraday Delta-OI momentum confirmation ---
+    st.subheader("COA 2.0 — Delta OI confirmation (final trigger)")
+    if selected_index not in st.session_state.coa2_history:
+        st.session_state.coa2_history[selected_index] = {
+            "call_oi_pct": [], "put_oi_pct": [],
+            "prev_call_oi": None, "prev_put_oi": None,
+        }
+    _coa2 = st.session_state.coa2_history[selected_index]
+
+    current_call_oi = float(zone_df["Call_OI"].sum())
+    current_put_oi = float(zone_df["Put_OI"].sum())
+
+    call_oi_pct = (compute_side_oi_change_pct(current_call_oi, _coa2["prev_call_oi"])
+                   if _coa2["prev_call_oi"] is not None else 0.0)
+    put_oi_pct = (compute_side_oi_change_pct(current_put_oi, _coa2["prev_put_oi"])
+                  if _coa2["prev_put_oi"] is not None else 0.0)
+
+    _coa2["call_oi_pct"] = (_coa2["call_oi_pct"] + [call_oi_pct])[-10:]
+    _coa2["put_oi_pct"] = (_coa2["put_oi_pct"] + [put_oi_pct])[-10:]
+    _coa2["prev_call_oi"] = current_call_oi
+    _coa2["prev_put_oi"] = current_put_oi
+
+    call_line_state = classify_line_state(_coa2["call_oi_pct"])
+    put_line_state = classify_line_state(_coa2["put_oi_pct"])
+    tactical = classify_tactical_scenario(call_line_state, put_line_state)
+
+    d1, d2 = st.columns(2)
+    d1.metric("Call ΔOI line", f"{call_oi_pct:+.1f}%", call_line_state.replace("_", " ").title())
+    d2.metric("Put ΔOI line", f"{put_oi_pct:+.1f}%", put_line_state.replace("_", " ").title())
+
+    st.info(f"**Scenario {tactical['number']}: {tactical['name']}** — {tactical['dynamics']}")
+    st.caption(
+        "Golden rule: never trade this in isolation. Use it only as the final "
+        "trigger to confirm whether the COA 1.0 wall above will hold or give way — "
+        "the structural read (support/resistance/scenario) still comes first."
+    )
+    if len(_coa2["call_oi_pct"]) < 3:
+        st.caption(f"Warming up — {len(_coa2['call_oi_pct'])}/3 polls collected. "
+                   "Volatile/erratic detection needs at least 3 check-ins to activate.")
+
+    st.markdown("---")
+
+    # --- Diversion (UR/US): intraday pivots from wall migration ---
+    st.subheader("Diversion pivots (UR / US)")
+    if selected_index not in st.session_state.diversion_state:
+        st.session_state.diversion_state[selected_index] = {
+            "prev_support": None, "prev_resistance": None,
+            "active_ur": None, "active_us": None,
+        }
+    _div = st.session_state.diversion_state[selected_index]
+
+    new_ur = detect_diversion(_div["prev_resistance"], metrics["resistance"])
+    new_us = detect_diversion(_div["prev_support"], metrics["support"])
+    if new_ur is not None:
+        _div["active_ur"] = new_ur
+    if new_us is not None:
+        _div["active_us"] = new_us
+    _div["prev_resistance"] = metrics["resistance"]
+    _div["prev_support"] = metrics["support"]
+
+    dv1, dv2 = st.columns(2)
+    if _div["active_ur"] is not None:
+        dv1.metric("UR (upper diversion)", f"{_div['active_ur']:.2f}")
+    else:
+        dv1.metric("UR (upper diversion)", "—")
+    if _div["active_us"] is not None:
+        dv2.metric("US (support diversion)", f"{_div['active_us']:.2f}")
+    else:
+        dv2.metric("US (support diversion)", "—")
+
+    if new_ur is not None:
+        st.caption(f"Resistance wall just migrated from {_div['prev_resistance']:.0f} — "
+                   f"new UR pivot formed at {new_ur:.2f}.")
+    if new_us is not None:
+        st.caption(f"Support wall just migrated from {_div['prev_support']:.0f} — "
+                   f"new US pivot formed at {new_us:.2f}.")
+    if new_ur is None and new_us is None and _div["active_ur"] is None and _div["active_us"] is None:
+        st.caption("No wall migration detected yet this session — diversions only "
+                   "form when a wall's strike actually shifts, not on a fixed schedule.")
+
+    st.markdown("---")
+
     # --- Active trade card ---
     st.subheader("Active / probable trade")
     active = get_active_trade()
@@ -298,7 +496,28 @@ if page == "Live signals":
 
         scen_stats = get_scenario_stats(active.get("scenario", ""), days=history_days)
 
+        # Mid-trade structural shift check — per spec: "If a Scenario shifts
+        # mid-trade, exit instantly at market price." Compares the scenario
+        # logged when this trade was opened against the current live read.
+        opened_scenario = active.get("scenario", "")
+        structural_shift = bool(opened_scenario) and opened_scenario != metrics["scenario"]
+        if structural_shift and not st.session_state.get(f"shift_alerted_{active['id']}"):
+            st.session_state[f"shift_alerted_{active['id']}"] = True
+            if enable_alerts and telegram_ready:
+                send_telegram_alert(
+                    f"🚨 {active['ticker']} {active['strike_traded']}: STRUCTURAL CHANGE DETECTED\n"
+                    f"Opened under: {opened_scenario}\n"
+                    f"Now showing: {metrics['scenario']}\n"
+                    f"Consider exiting immediately at market."
+                )
+
         with st.container(border=True):
+            if structural_shift:
+                st.error(
+                    f"🚨 **STRUCTURAL CHANGE DETECTED — EXIT IMMEDIATELY**  \n"
+                    f"Opened under *{opened_scenario}*, now showing *{metrics['scenario']}*. "
+                    f"The setup this trade was based on no longer holds."
+                )
             st.markdown(f"**{active['trade_type']} — {active['strike_traded']}**  \n"
                         f"opened {active['timestamp_in']}")
             pc1, pc2, pc3, pc4 = st.columns(4)
@@ -340,44 +559,65 @@ if page == "Live signals":
                 st.rerun()
     else:
         st.info("No open position. Standing by for spot to reach EOS/EOR.")
+
+        # T1 target: prefer an active migration-based diversion pivot (UR/US)
+        # if one sits meaningfully between entry and the range midpoint;
+        # otherwise use the range midpoint itself (Playbook A: "the immediate
+        # opposite diversion point — the middle of the range").
+        range_target = compute_range_target(metrics["eos"], metrics["eor"])
+        diversion_candidates = [_div["active_ur"], _div["active_us"]]
+        call_t1 = choose_t1_target(metrics["eos"], range_target, diversion_candidates, direction="up")
+        put_t1 = choose_t1_target(metrics["eor"], range_target, diversion_candidates, direction="down")
+
+        # Strike to buy: derived from the EOS/EOR price itself (ceiling for
+        # calls, floor for puts — verified against a worked example, since
+        # naive "nearest strike" rounding gives the wrong answer), not a
+        # fixed offset from the DIL.
+        call_strike = select_otm_strike(metrics["eos"], step_size, "CE")
+        put_strike = select_otm_strike(metrics["eor"], step_size, "PE")
+
         cta1, cta2 = st.columns(2)
         with cta1:
-            st.markdown(f"**Call setup (support side)**  \n"
+            st.markdown(f"**🚀 CALL — strike to buy: `{call_strike} CE`**  \n"
                         f"Entry (EOS) `{metrics['eos']:.2f}` · SL `{metrics['eos'] - step_size * 0.4:.2f}` · "
-                        f"T1 `{metrics['eos'] + step_size:.2f}` · T2 `{metrics['eor']:.2f}`")
+                        f"T1 `{call_t1:.2f}` · T2 `{metrics['eor']:.2f}`")
+            if call_t1 != range_target:
+                st.caption(f"T1 uses the active diversion pivot ({call_t1:.2f}) rather than the range midpoint.")
             if execution_permitted and st.button("Open CALL position"):
                 open_trade({
                     "timestamp_in": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "ticker": selected_index, "trade_type": "CALL",
-                    "strike_traded": f"{int(metrics['base_strike'] - step_size)} CE",
+                    "strike_traded": f"{call_strike} CE",
                     "scenario": metrics["scenario"], "lots": final_lots,
                     "entry_spot": metrics["eos"], "sl_spot": metrics["eos"] - step_size * 0.4,
-                    "t1_spot": metrics["eos"] + step_size, "t2_spot": metrics["eor"],
+                    "t1_spot": call_t1, "t2_spot": metrics["eor"],
                 })
                 if enable_alerts and telegram_ready:
                     send_telegram_alert(
-                        f"📥 {selected_index}: CALL opened @ {metrics['eos']:.2f}\n"
-                        f"SL {metrics['eos'] - step_size * 0.4:.2f} · T1 {metrics['eos'] + step_size:.2f} · "
+                        f"📥 {selected_index}: CALL {call_strike} CE opened @ {metrics['eos']:.2f}\n"
+                        f"SL {metrics['eos'] - step_size * 0.4:.2f} · T1 {call_t1:.2f} · "
                         f"T2 {metrics['eor']:.2f} · Lots {final_lots}"
                     )
                 st.rerun()
         with cta2:
-            st.markdown(f"**Put setup (resistance side)**  \n"
+            st.markdown(f"**💥 PUT — strike to buy: `{put_strike} PE`**  \n"
                         f"Entry (EOR) `{metrics['eor']:.2f}` · SL `{metrics['eor'] + step_size * 0.4:.2f}` · "
-                        f"T1 `{metrics['eor'] - step_size:.2f}` · T2 `{metrics['eos']:.2f}`")
+                        f"T1 `{put_t1:.2f}` · T2 `{metrics['eos']:.2f}`")
+            if put_t1 != range_target:
+                st.caption(f"T1 uses the active diversion pivot ({put_t1:.2f}) rather than the range midpoint.")
             if execution_permitted and st.button("Open PUT position"):
                 open_trade({
                     "timestamp_in": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "ticker": selected_index, "trade_type": "PUT",
-                    "strike_traded": f"{int(metrics['strike_above'] + step_size)} PE",
+                    "strike_traded": f"{put_strike} PE",
                     "scenario": metrics["scenario"], "lots": final_lots,
                     "entry_spot": metrics["eor"], "sl_spot": metrics["eor"] + step_size * 0.4,
-                    "t1_spot": metrics["eor"] - step_size, "t2_spot": metrics["eos"],
+                    "t1_spot": put_t1, "t2_spot": metrics["eos"],
                 })
                 if enable_alerts and telegram_ready:
                     send_telegram_alert(
-                        f"📥 {selected_index}: PUT opened @ {metrics['eor']:.2f}\n"
-                        f"SL {metrics['eor'] + step_size * 0.4:.2f} · T1 {metrics['eor'] - step_size:.2f} · "
+                        f"📥 {selected_index}: PUT {put_strike} PE opened @ {metrics['eor']:.2f}\n"
+                        f"SL {metrics['eor'] + step_size * 0.4:.2f} · T1 {put_t1:.2f} · "
                         f"T2 {metrics['eos']:.2f} · Lots {final_lots}"
                     )
                 st.rerun()
