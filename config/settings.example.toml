@@ -1,0 +1,7 @@
+# Example CQRP runtime settings. Copy values into local environment variables; never commit secrets.
+environment = "development"
+poll_interval_seconds = 3
+
+[storage]
+database_path = "data/cqrp.db"
+log_dir = "logs"
