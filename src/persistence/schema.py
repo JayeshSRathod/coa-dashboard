@@ -413,6 +413,54 @@ def _add_paper_execution_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_portfolio_risk_store(connection: sqlite3.Connection) -> None:
+    """Add append-only portfolios, risk decisions, capital events, and exposures."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS portfolios (
+            portfolio_id TEXT PRIMARY KEY, name TEXT NOT NULL, owner TEXT,
+            initial_capital REAL NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS risk_decisions (
+            decision_id TEXT PRIMARY KEY, signal_id TEXT NOT NULL, portfolio_id TEXT NOT NULL,
+            experiment_id TEXT, experiment_key TEXT NOT NULL DEFAULT '', risk_version TEXT NOT NULL,
+            decision TEXT NOT NULL, requested_quantity INTEGER NOT NULL, approved_quantity INTEGER NOT NULL,
+            capital_required REAL NOT NULL, capital_available REAL NOT NULL, rejection_reason TEXT,
+            risk_metrics_json TEXT NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL,
+            FOREIGN KEY (signal_id) REFERENCES research_signals(signal_id),
+            FOREIGN KEY (portfolio_id) REFERENCES portfolios(portfolio_id),
+            UNIQUE(signal_id, portfolio_id, risk_version, experiment_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_risk_decisions_portfolio ON risk_decisions(portfolio_id, created_at);
+        CREATE TABLE IF NOT EXISTS portfolio_capital_events (
+            event_id TEXT PRIMARY KEY, portfolio_id TEXT NOT NULL, decision_id TEXT,
+            event_type TEXT NOT NULL, amount REAL NOT NULL, occurred_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+            FOREIGN KEY (portfolio_id) REFERENCES portfolios(portfolio_id),
+            FOREIGN KEY (decision_id) REFERENCES risk_decisions(decision_id),
+            UNIQUE(decision_id, event_type)
+        );
+        CREATE TABLE IF NOT EXISTS portfolio_exposures (
+            exposure_id TEXT PRIMARY KEY, portfolio_id TEXT NOT NULL, source_snapshot_id TEXT,
+            instrument TEXT, expiry TEXT, option_type TEXT, invested_amount REAL NOT NULL,
+            total_risk REAL NOT NULL, open_positions INTEGER NOT NULL, realized_pnl REAL NOT NULL,
+            unrealized_pnl REAL NOT NULL, total_equity REAL NOT NULL, max_drawdown REAL NOT NULL,
+            payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+            FOREIGN KEY (portfolio_id) REFERENCES portfolios(portfolio_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_portfolio_exposures_portfolio ON portfolio_exposures(portfolio_id, created_at);
+        CREATE TRIGGER IF NOT EXISTS portfolios_no_update BEFORE UPDATE ON portfolios BEGIN SELECT RAISE(ABORT, 'portfolios is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS portfolios_no_delete BEFORE DELETE ON portfolios BEGIN SELECT RAISE(ABORT, 'portfolios is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS risk_decisions_no_update BEFORE UPDATE ON risk_decisions BEGIN SELECT RAISE(ABORT, 'risk_decisions is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS risk_decisions_no_delete BEFORE DELETE ON risk_decisions BEGIN SELECT RAISE(ABORT, 'risk_decisions is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS portfolio_capital_events_no_update BEFORE UPDATE ON portfolio_capital_events BEGIN SELECT RAISE(ABORT, 'portfolio_capital_events is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS portfolio_capital_events_no_delete BEFORE DELETE ON portfolio_capital_events BEGIN SELECT RAISE(ABORT, 'portfolio_capital_events is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS portfolio_exposures_no_update BEFORE UPDATE ON portfolio_exposures BEGIN SELECT RAISE(ABORT, 'portfolio_exposures is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS portfolio_exposures_no_delete BEFORE DELETE ON portfolio_exposures BEGIN SELECT RAISE(ABORT, 'portfolio_exposures is append-only'); END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -420,4 +468,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=4, name="validation_evidence_v4", apply=_add_validation_result_store),
     Migration(version=5, name="research_signals_v5", apply=_add_research_signal_store),
     Migration(version=6, name="event_sourced_paper_trades_v6", apply=_add_paper_execution_store),
+    Migration(version=7, name="portfolio_risk_v7", apply=_add_portfolio_risk_store),
 )
