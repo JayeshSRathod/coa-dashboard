@@ -183,7 +183,55 @@ def _add_market_capture_fields(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_coa_result_store(connection: sqlite3.Connection) -> None:
+    """Add immutable COA research outputs without rewriting historical data."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS coa_results (
+            coa_result_id TEXT PRIMARY KEY,
+            snapshot_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            experiment_id TEXT,
+            experiment_key TEXT NOT NULL DEFAULT '',
+            strategy_version TEXT NOT NULL,
+            engine_version TEXT NOT NULL,
+            scenario_number INTEGER,
+            scenario TEXT,
+            eos REAL,
+            eor REAL,
+            support REAL,
+            resistance REAL,
+            momentum_json TEXT,
+            diversion_json TEXT,
+            trend TEXT,
+            direction TEXT,
+            risk_mode TEXT,
+            raw_output_json TEXT NOT NULL,
+            processing_time_ms REAL NOT NULL,
+            market_timestamp TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            UNIQUE (snapshot_id, engine_version, experiment_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_coa_results_snapshot
+            ON coa_results(snapshot_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_coa_results_session_time
+            ON coa_results(session_id, market_timestamp, coa_result_id);
+
+        CREATE TRIGGER IF NOT EXISTS coa_results_no_update
+            BEFORE UPDATE ON coa_results BEGIN
+            SELECT RAISE(ABORT, 'coa_results is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS coa_results_no_delete
+            BEFORE DELETE ON coa_results BEGIN
+            SELECT RAISE(ABORT, 'coa_results is append-only');
+            END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
+    Migration(version=3, name="coa_research_results_v3", apply=_add_coa_result_store),
 )
