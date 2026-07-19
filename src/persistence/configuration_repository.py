@@ -30,3 +30,11 @@ class ConfigurationRepository(SQLiteRepository):
         row = self.connection.execute("SELECT * FROM strategy_configurations WHERE configuration_id=?",
                                       (configuration_id,)).fetchone()
         return _decode(row) if row else None
+
+
+    def list_for_strategy(self, strategy_id):
+        rows = self.connection.execute(
+            "SELECT * FROM strategy_configurations WHERE strategy_id=? ORDER BY created_at, configuration_id",
+            (strategy_id,)
+        ).fetchall()
+        return [_decode(row) for row in rows]
