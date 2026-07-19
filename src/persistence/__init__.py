@@ -8,6 +8,9 @@ from .validation_repository import ValidationRepository
 from .signal_repository import SignalRepository
 from .trade_repository import TradeRepository
 from .trade_event_repository import TradeEventRepository
+from .portfolio_repository import PortfolioRepository
+from .risk_decision_repository import RiskDecisionRepository
+from .exposure_repository import ExposureRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -17,6 +20,18 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_portfolio_repository(database_path: str) -> PortfolioRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return PortfolioRepository(connection)
+
+
+def initialize_risk_decision_repository(database_path: str) -> RiskDecisionRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return RiskDecisionRepository(connection)
+
+
+def initialize_exposure_repository(database_path: str) -> ExposureRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return ExposureRepository(connection)
 
 
 def initialize_trade_repository(database_path: str) -> TradeRepository:
@@ -64,6 +79,9 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 __all__ = [
     "COAResultRepository",
     "SignalRepository",
+    "ExposureRepository",
+    "PortfolioRepository",
+    "RiskDecisionRepository",
     "TradeEventRepository",
     "TradeRepository",
     "ValidationRepository",
@@ -76,6 +94,9 @@ __all__ = [
     "initialize_research_database",
     "initialize_snapshot_repository",
     "initialize_signal_repository",
+    "initialize_exposure_repository",
+    "initialize_portfolio_repository",
+    "initialize_risk_decision_repository",
     "initialize_trade_event_repository",
     "initialize_trade_repository",
     "initialize_validation_repository",
