@@ -11,6 +11,9 @@ from .trade_event_repository import TradeEventRepository
 from .portfolio_repository import PortfolioRepository
 from .risk_decision_repository import RiskDecisionRepository
 from .exposure_repository import ExposureRepository
+from .analytics_repository import AnalyticsRepository
+from .report_repository import ReportRepository
+from .performance_snapshot_repository import PerformanceSnapshotRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -20,6 +23,24 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_analytics_repository(database_path: str) -> AnalyticsRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return AnalyticsRepository(connection)
+
+
+def initialize_report_repository(database_path: str) -> ReportRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return ReportRepository(connection)
+
+
+def initialize_performance_snapshot_repository(database_path: str) -> PerformanceSnapshotRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return PerformanceSnapshotRepository(connection)
 
 
 def initialize_portfolio_repository(database_path: str) -> PortfolioRepository:
@@ -77,11 +98,14 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 
 
 __all__ = [
+    "AnalyticsRepository",
     "COAResultRepository",
     "SignalRepository",
     "ExposureRepository",
     "PortfolioRepository",
     "RiskDecisionRepository",
+    "ReportRepository",
+    "PerformanceSnapshotRepository",
     "TradeEventRepository",
     "TradeRepository",
     "ValidationRepository",
@@ -90,7 +114,10 @@ __all__ = [
     "SnapshotRepository",
     "apply_migrations",
     "connect",
+    "initialize_analytics_repository",
     "initialize_coa_result_repository",
+    "initialize_performance_snapshot_repository",
+    "initialize_report_repository",
     "initialize_research_database",
     "initialize_snapshot_repository",
     "initialize_signal_repository",
