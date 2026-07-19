@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-import sqlite3
 from typing import Any
 from uuid import uuid4
 
@@ -68,9 +67,7 @@ class ResearchRepository(SQLiteRepository):
         signal_id = record.get("signal_id", str(uuid4()))
         with self.connection:
             self.connection.execute(
-                """
-                INSERT INTO signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                "INSERT INTO signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     signal_id, record["snapshot_id"], record.get("created_at", _utc_now()),
                     record["instrument"], record["direction"], record["action"],
@@ -95,8 +92,58 @@ class ResearchRepository(SQLiteRepository):
             )
         return validation_id
 
-    def record_system_event(self, event_type: str, severity: str, payload: dict[str, Any],
-                            instrument: str | None = None, occurred_at: str | None = None) -> str:
+    def open_paper_trade(self, record: dict[str, Any]) -> str:
+        """Record a paper entry; closing it is a separate append-only event."""
+        trade_id = record.get("trade_id", str(uuid4()))
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO paper_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    trade_id, record["signal_id"], record.get("opened_at", _utc_now()),
+                    record["instrument"], record["direction"], record.get("strike"),
+                    record["quantity"], record["entry_spot"], record.get("entry_option_price"),
+                    record.get("stop_level"), record.get("target_level"),
+                    record.get("strategy_profile_id"),
+                ),
+            )
+        return trade_id
+
+    def record_trade_update(self, record: dict[str, Any]) -> str:
+        update_id = record.get("update_id", str(uuid4()))
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO trade_updates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    update_id, record["trade_id"], record.get("observed_at", _utc_now()),
+                    record["spot"], record.get("option_price"), record.get("unrealized_pnl"),
+                    record.get("scenario"), record.get("coa2_state"), record.get("mae"),
+                    record.get("mfe"), _json(record.get("payload", {})),
+                ),
+            )
+        return update_id
+
+    def record_trade_exit(self, record: dict[str, Any]) -> str:
+        exit_id = record.get("exit_id", str(uuid4()))
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO trade_exits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    exit_id, record["trade_id"], record.get("exited_at", _utc_now()),
+                    record["exit_spot"], record.get("exit_option_price"),
+                    record.get("realized_pnl"), record["exit_reason"],
+                    record.get("holding_seconds"), _json(record.get("payload", {})),
+                ),
+            )
+        return exit_id
+
+    def record_system_event(
+        self,
+        event_type: str,
+        severity: str,
+        payload: dict[str, Any],
+        instrument: str | None = None,
+        occurred_at: str | None = None,
+    ) -> str:
         event_id = str(uuid4())
         with self.connection:
             self.connection.execute(
