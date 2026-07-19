@@ -25,7 +25,7 @@ class StrategyLabService:
     def __init__(
         self, strategy_repository, configuration_repository, dataset_repository,
         experiment_repository, promotion_repository, notebook_repository,
-        logger: logging.Logger | None = None,
+        logger: logging.Logger | None = None, knowledge_builder=None,
     ) -> None:
         self.strategies = strategy_repository
         self.configurations = configuration_repository
