@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "notifications": {
+    "enabled": false,
+    "enabled_channels": []
+  },
+  "health": {
+    "warning_response_ms": 500,
+    "degraded_response_ms": 2000,
+    "offline_after_seconds": 120
+  },
+  "dashboard": {
+    "timeline_limit": 200
+  }
+}

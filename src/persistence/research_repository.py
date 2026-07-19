@@ -67,7 +67,7 @@ class ResearchRepository(SQLiteRepository):
         signal_id = record.get("signal_id", str(uuid4()))
         with self.connection:
             self.connection.execute(
-                "INSERT INTO signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     signal_id, record["snapshot_id"], record.get("created_at", _utc_now()),
                     record["instrument"], record["direction"], record["action"],

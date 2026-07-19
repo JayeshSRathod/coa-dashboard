@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import logging
 from threading import Event
 from time import perf_counter
-from typing import Any
+from typing import Any, Callable
 
 from src.market.snapshot import MarketSnapshotPayload, MarketSnapshotProvider
 from src.persistence.snapshot_repository import SnapshotRepository
@@ -53,11 +53,13 @@ class SnapshotCaptureService:
         validator: SnapshotValidator | None = None,
         metrics: SnapshotMetrics | None = None,
         logger: logging.Logger | None = None,
+        after_store: Callable[[str], Any] | None = None,
     ) -> None:
         self.repository = repository
         self.validator = validator or SnapshotValidator()
         self.metrics = metrics or SnapshotMetrics()
         self.logger = logger or logging.getLogger("cqrp.snapshot_capture")
+        self.after_store = after_store
 
     def capture_payload(
         self,
@@ -110,6 +112,19 @@ class SnapshotCaptureService:
 
         persist_started = perf_counter()
         self.repository.append(snapshot, validation)
+        if self.after_store is not None:
+            try:
+                self.after_store(snapshot.snapshot_id)
+            except Exception as exc:
+                # Capture remains durable; analysis failures are observable and recoverable.
+                self.repository.record_event(
+                    "snapshot_post_persist_processing_failed", "ERROR",
+                    {"snapshot_id": snapshot.snapshot_id, "error": str(exc)}, snapshot.instrument,
+                )
+                emit_snapshot_event(
+                    self.logger, "snapshot_post_persist_processing_failed",
+                    snapshot_id=snapshot.snapshot_id, instrument=snapshot.instrument, error=str(exc),
+                )
         persistence_latency_ms = (perf_counter() - persist_started) * 1000
         self.metrics.record_stored(persistence_latency_ms, degraded=not validation.is_complete)
         emit_snapshot_event(
