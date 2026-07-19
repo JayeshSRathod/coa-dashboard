@@ -157,6 +157,33 @@ def _create_research_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+def _add_market_capture_fields(connection: sqlite3.Connection) -> None:
+    """Add replay metadata without rewriting any historical snapshot."""
+    for statement in (
+        "ALTER TABLE market_snapshots ADD COLUMN session_id TEXT",
+        "ALTER TABLE market_snapshots ADD COLUMN market_captured_at TEXT",
+        "ALTER TABLE market_snapshots ADD COLUMN ingested_at TEXT",
+        "ALTER TABLE market_snapshots ADD COLUMN futures_price REAL",
+        "ALTER TABLE market_snapshots ADD COLUMN atm_strike REAL",
+        "ALTER TABLE market_snapshots ADD COLUMN expiry TEXT",
+        "ALTER TABLE market_snapshots ADD COLUMN expiry_type TEXT",
+        "ALTER TABLE market_snapshots ADD COLUMN data_completeness REAL",
+        "ALTER TABLE market_snapshots ADD COLUMN is_complete INTEGER",
+        "ALTER TABLE market_snapshots ADD COLUMN missing_strikes_json TEXT",
+        "ALTER TABLE market_snapshots ADD COLUMN metadata_json TEXT",
+    ):
+        connection.execute(statement)
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_session_time "
+        "ON market_snapshots(session_id, market_captured_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_replay_time "
+        "ON market_snapshots(instrument, market_captured_at)"
+    )
+
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
+    Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
 )
