@@ -23,6 +23,12 @@ from .broker_account_repository import BrokerAccountRepository
 from .instrument_repository import InstrumentRepository
 from .execution_route_repository import ExecutionRouteRepository
 from .market_provider_repository import MarketProviderRepository
+from .strategy_repository import StrategyRepository
+from .configuration_repository import ConfigurationRepository
+from .dataset_repository import DatasetRepository
+from .experiment_repository import ExperimentRepository
+from .promotion_repository import PromotionRepository
+from .research_notebook_repository import ResearchNotebookRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -32,6 +38,30 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_strategy_repository(database_path: str) -> StrategyRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return StrategyRepository(connection)
+
+
+def initialize_configuration_repository(database_path: str) -> ConfigurationRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return ConfigurationRepository(connection)
+
+
+def initialize_dataset_repository(database_path: str) -> DatasetRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return DatasetRepository(connection)
+
+
+def initialize_experiment_repository(database_path: str) -> ExperimentRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return ExperimentRepository(connection)
+
+
+def initialize_promotion_repository(database_path: str) -> PromotionRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return PromotionRepository(connection)
+
+
+def initialize_research_notebook_repository(database_path: str) -> ResearchNotebookRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return ResearchNotebookRepository(connection)
 
 
 def initialize_broker_repository(database_path: str) -> BrokerRepository:
@@ -162,6 +192,12 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 
 __all__ = [
     "AnalyticsRepository",
+    "StrategyRepository",
+    "ConfigurationRepository",
+    "DatasetRepository",
+    "ExperimentRepository",
+    "PromotionRepository",
+    "ResearchNotebookRepository",
     "BrokerRepository",
     "BrokerAccountRepository",
     "InstrumentRepository",
@@ -187,6 +223,12 @@ __all__ = [
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
+    "initialize_strategy_repository",
+    "initialize_configuration_repository",
+    "initialize_dataset_repository",
+    "initialize_experiment_repository",
+    "initialize_promotion_repository",
+    "initialize_research_notebook_repository",
     "initialize_broker_repository",
     "initialize_broker_account_repository",
     "initialize_execution_route_repository",
