@@ -9,7 +9,7 @@ from .models import PaperTrade, TradeEvent, TradeState
 
 def project_trade(trade: PaperTrade, events: Iterable[TradeEvent]) -> TradeState:
     status, remaining = "PENDING", 0
-    entry = stop, target1, target2, trail = None
+    entry = stop = target1 = target2 = trail = None
     opened = closed = reason = None
     realized = unrealized = mfe = mae = 0.0
     exit_notional = exit_qty = 0
