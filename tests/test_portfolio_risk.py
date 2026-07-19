@@ -10,7 +10,7 @@ def signal(**overrides):
         "validation_id": "validation-1", "session_id": "session-1", "experiment_id": None,
         "strategy_version": "1.0.0", "signal_version": "1.0.0", "instrument": "NIFTY",
         "expiry": "2026-07-23", "signal_type": "BUY", "signal_state": "ACTIVE",
-        "direction": "BULLISH", "entry_price": 100.0, "stop_loss": 90.0,
+        "direction": "BUY", "entry_price": 100.0, "stop_loss": 90.0,
         "target_1": None, "target_2": None, "trailing_reference": None,
         "confidence_score": 90.0, "confidence_band": "HIGH", "scenario": "S1",
         "eos": None, "eor": None, "momentum": None, "diversion": None,
