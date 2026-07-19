@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from .models import CapturedSnapshot
@@ -29,13 +29,23 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed
 
 
+def _is_positive(value: float | None) -> bool:
+    try:
+        return value is not None and float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 class SnapshotValidator:
-    """Performs deterministic structural and temporal validation."""
+    """Performs deterministic structural, temporal, and metadata validation."""
 
     def validate(
         self,
         snapshot: CapturedSnapshot,
         previous_market_captured_at: str | None = None,
+        previous_session_id: str | None = None,
+        previous_expiry: str | None = None,
+        previous_expiry_type: str | None = None,
         expected_instrument: str | None = None,
     ) -> SnapshotValidationResult:
         errors: list[str] = []
@@ -50,11 +60,12 @@ class SnapshotValidator:
             errors.append("market source is required")
         if not snapshot.session_id.strip():
             errors.append("session_id is required")
-        try:
-            if float(snapshot.spot) <= 0:
-                errors.append("spot must be positive")
-        except (TypeError, ValueError):
-            errors.append("spot must be numeric")
+        if not _is_positive(snapshot.spot):
+            errors.append("spot must be positive")
+        if snapshot.futures_price is not None and not _is_positive(snapshot.futures_price):
+            errors.append("futures_price must be positive when supplied")
+        if snapshot.atm_strike is not None and not _is_positive(snapshot.atm_strike):
+            errors.append("atm_strike must be positive when supplied")
 
         try:
             market_time = _parse_timestamp(snapshot.market_captured_at)
@@ -65,6 +76,12 @@ class SnapshotValidator:
                 errors.append("market capture timestamp is not monotonic")
         except (TypeError, ValueError) as exc:
             errors.append(f"invalid timestamp: {exc}")
+
+        if previous_session_id == snapshot.session_id:
+            if previous_expiry and snapshot.expiry and previous_expiry != snapshot.expiry:
+                errors.append("expiry changed within the same market session")
+            if previous_expiry_type and snapshot.expiry_type and previous_expiry_type != snapshot.expiry_type:
+                errors.append("expiry_type changed within the same market session")
 
         if not isinstance(snapshot.option_chain, list) or not snapshot.option_chain:
             errors.append("option_chain must contain at least one strike")
