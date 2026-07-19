@@ -461,6 +461,59 @@ def _add_portfolio_risk_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_performance_analytics_store(connection: sqlite3.Connection) -> None:
+    """Add immutable analytics reports and performance checkpoints."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS analytics_reports (
+            report_id TEXT PRIMARY KEY,
+            report_type TEXT NOT NULL,
+            analytics_version TEXT NOT NULL,
+            scope_json TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL,
+            metrics_json TEXT NOT NULL,
+            groups_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            UNIQUE(report_type, analytics_version, source_fingerprint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_analytics_reports_type_time
+            ON analytics_reports(report_type, created_at);
+        CREATE TABLE IF NOT EXISTS performance_snapshots (
+            performance_snapshot_id TEXT PRIMARY KEY,
+            report_id TEXT NOT NULL,
+            portfolio_id TEXT,
+            session_id TEXT,
+            observed_at TEXT NOT NULL,
+            equity REAL NOT NULL,
+            drawdown REAL NOT NULL,
+            pnl REAL NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (report_id) REFERENCES analytics_reports(report_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_performance_snapshots_report_time
+            ON performance_snapshots(report_id, observed_at);
+        CREATE TRIGGER IF NOT EXISTS analytics_reports_no_update
+            BEFORE UPDATE ON analytics_reports BEGIN
+            SELECT RAISE(ABORT, 'analytics_reports is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS analytics_reports_no_delete
+            BEFORE DELETE ON analytics_reports BEGIN
+            SELECT RAISE(ABORT, 'analytics_reports is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS performance_snapshots_no_update
+            BEFORE UPDATE ON performance_snapshots BEGIN
+            SELECT RAISE(ABORT, 'performance_snapshots is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS performance_snapshots_no_delete
+            BEFORE DELETE ON performance_snapshots BEGIN
+            SELECT RAISE(ABORT, 'performance_snapshots is append-only');
+            END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -469,4 +522,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=5, name="research_signals_v5", apply=_add_research_signal_store),
     Migration(version=6, name="event_sourced_paper_trades_v6", apply=_add_paper_execution_store),
     Migration(version=7, name="portfolio_risk_v7", apply=_add_portfolio_risk_store),
+    Migration(version=8, name="performance_analytics_v8", apply=_add_performance_analytics_store),
 )
