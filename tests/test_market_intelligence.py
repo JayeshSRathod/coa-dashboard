@@ -9,5 +9,5 @@ class MarketIntelligenceTests(unittest.TestCase):
   self.assertEqual([r.symbol for r in results],["BANK"]);self.assertEqual(calculate_rank({"trend":100}),25);self.assertEqual(len(generate_watchlists(results)["DAILY"]),1)
  def test_breadth_sector_themes_and_alerts(self):
   self.assertEqual(market_breadth(self.records)["advances"],1);self.assertEqual(sector_strength(self.records)[0]["sector"],"Banking")
-  self.assertEqual(len(detect_themes(self.records)),3);self.assertEqual(alerts_for([],[]),[])
+  self.assertEqual(len(detect_themes(self.records)),4);self.assertEqual(alerts_for([],[]),[])
 if __name__=="__main__":unittest.main()
