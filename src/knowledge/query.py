@@ -38,9 +38,9 @@ class KnowledgeQueryEngine:
                 facts[0].summary.get("strategy_name") if domain == "STRATEGY" else key
             ) or key
             ranked.append({"subject": display_name, "subject_key": key, "score": value, **aggregate})
-        return sorted(ranked, key=lambda item: item["subject_key"]) if not ranked else sorted(
-            ranked, key=lambda item: item["subject_key"]) and sorted(
-            ranked, key=lambda item: item["score"], reverse=reverse)
+        ranked.sort(key=lambda item: item["subject_key"])
+        ranked.sort(key=lambda item: item["score"], reverse=reverse)
+        return ranked
 
     def find_best_strategy(self):
         return (self._rank("STRATEGY") or [None])[0]
