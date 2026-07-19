@@ -817,6 +817,97 @@ def _add_strategy_lab_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_enterprise_operations_store(connection: sqlite3.Connection) -> None:
+    """Add append-only Enterprise Operations Center observations and governance."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS eoc_health_observations (
+            health_id TEXT PRIMARY KEY, component TEXT NOT NULL, status TEXT NOT NULL,
+            version TEXT NOT NULL, observed_at TEXT NOT NULL, uptime_seconds REAL,
+            last_heartbeat_at TEXT, error_count INTEGER NOT NULL,
+            average_processing_ms REAL, response_time_ms REAL, queue_backlog INTEGER,
+            details_json TEXT NOT NULL, correlation_id TEXT, created_by TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_health_component_time
+            ON eoc_health_observations(component, observed_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_alerts (
+            alert_id TEXT PRIMARY KEY, category TEXT NOT NULL, severity TEXT NOT NULL,
+            component TEXT NOT NULL, message TEXT NOT NULL, deduplication_key TEXT NOT NULL UNIQUE,
+            observed_at TEXT NOT NULL, correlation_id TEXT, details_json TEXT NOT NULL,
+            created_by TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_alerts_severity_time
+            ON eoc_alerts(severity, observed_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_audit_events (
+            audit_id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL,
+            entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, occurred_at TEXT NOT NULL,
+            before_json TEXT NOT NULL, after_json TEXT NOT NULL, correlation_id TEXT,
+            created_by TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_audit_entity_time
+            ON eoc_audit_events(entity_type, entity_id, occurred_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_scheduler_observations (
+            scheduler_event_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, status TEXT NOT NULL,
+            observed_at TEXT NOT NULL, last_run_at TEXT, next_run_at TEXT, duration_ms REAL,
+            result_json TEXT NOT NULL, correlation_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_scheduler_job_time
+            ON eoc_scheduler_observations(job_id, observed_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_metrics (
+            metric_id TEXT PRIMARY KEY, component TEXT NOT NULL, metric_name TEXT NOT NULL,
+            value REAL NOT NULL, unit TEXT NOT NULL, observed_at TEXT NOT NULL,
+            correlation_id TEXT, details_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_metrics_component_time
+            ON eoc_metrics(component, metric_name, observed_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_notification_deliveries (
+            delivery_id TEXT PRIMARY KEY, alert_id TEXT NOT NULL, channel TEXT NOT NULL,
+            status TEXT NOT NULL, reason TEXT, attempted_at TEXT NOT NULL,
+            details_json TEXT NOT NULL, FOREIGN KEY(alert_id) REFERENCES eoc_alerts(alert_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_notifications_alert
+            ON eoc_notification_deliveries(alert_id, attempted_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_configuration_history (
+            configuration_event_id TEXT PRIMARY KEY, configuration_name TEXT NOT NULL,
+            version TEXT NOT NULL, checksum TEXT NOT NULL, values_json TEXT NOT NULL,
+            actor TEXT NOT NULL, occurred_at TEXT NOT NULL, correlation_id TEXT,
+            created_by TEXT NOT NULL,
+            UNIQUE(configuration_name, version, checksum)
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_configuration_name_time
+            ON eoc_configuration_history(configuration_name, occurred_at);
+
+        CREATE TABLE IF NOT EXISTS eoc_diagnostic_reports (
+            diagnostic_id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL,
+            recommendation TEXT NOT NULL, details_json TEXT NOT NULL, observed_at TEXT NOT NULL,
+            correlation_id TEXT, created_by TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_eoc_diagnostic_name_time
+            ON eoc_diagnostic_reports(name, observed_at);
+        """
+    )
+    immutable_tables = (
+        "eoc_health_observations", "eoc_alerts", "eoc_audit_events",
+        "eoc_scheduler_observations", "eoc_metrics", "eoc_notification_deliveries",
+        "eoc_configuration_history", "eoc_diagnostic_reports",
+    )
+    for table in immutable_tables:
+        connection.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} "
+            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+        )
+        connection.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} "
+            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+        )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -829,4 +920,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=9, name="live_execution_gateway_v9", apply=_add_live_execution_store),
     Migration(version=10, name="multi_broker_asset_v10", apply=_add_multi_broker_asset_store),
     Migration(version=11, name="strategy_lab_v11", apply=_add_strategy_lab_store),
+    Migration(12, "enterprise_operations_center", _add_enterprise_operations_store),
 )
