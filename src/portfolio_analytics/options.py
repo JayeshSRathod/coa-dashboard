@@ -41,9 +41,11 @@ def max_pain(chain: list[dict]) -> dict:
     pain = {}
     for settlement in strikes:
         pain[settlement] = sum(
-            max(0.0, settlement-float(row["strike"])) * float(row.get("oi", 0)
-            if row["option_type"].upper() == "CALL"
-            else max(0.0, float(row["strike"])-settlement) * float(row.get("oi", 0))
+            (
+                max(0.0, settlement - float(row["strike"])) * float(row.get("oi", 0))
+                if row["option_type"].upper() == "CALL"
+                else max(0.0, float(row["strike"]) - settlement) * float(row.get("oi", 0))
+            )
             for row in chain
         )
     level = min(pain, key=lambda strike: (pain[strike], strike)) if pain else None
