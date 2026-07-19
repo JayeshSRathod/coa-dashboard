@@ -97,7 +97,7 @@ class ResearchRepository(SQLiteRepository):
         trade_id = record.get("trade_id", str(uuid4()))
         with self.connection:
             self.connection.execute(
-                "INSERT INTO paper_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO paper_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     trade_id, record["signal_id"], record.get("opened_at", _utc_now()),
                     record["instrument"], record["direction"], record.get("strike"),
