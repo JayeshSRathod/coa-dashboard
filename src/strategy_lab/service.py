@@ -33,7 +33,8 @@ class StrategyLabService:
         self.experiments = experiment_repository
         self.promotions = promotion_repository
         self.notebook = notebook_repository
-        self.logger = logger or logging.getLogger("cqrp.strategy_lab")\n        self.knowledge_builder = knowledge_builder
+        self.logger = logger or logging.getLogger("cqrp.strategy_lab")
+        self.knowledge_builder = knowledge_builder
 
     def create_strategy(self, **values) -> Strategy:
         strategy = self.strategies.insert(Strategy.new(**values))
@@ -110,6 +111,11 @@ class StrategyLabService:
                                     status="FAILED", execution_time_ms=(perf_counter() - started) * 1000,
                                     results={"error_type": type(exc).__name__})
         stored = self.experiments.append_run(run)
+        # Optional observability hook: omitted builders preserve Sprint-012 behavior.
+        if stored.status == "COMPLETED" and self.knowledge_builder is not None:
+            self.knowledge_builder.process_completed_experiment(
+                experiment, stored, self.strategies.get(experiment.strategy_id), dataset
+            )
         self.notebook.append(experiment_id=experiment_id, entry_type="RUN", content={
             "run_id": stored.run_id, "status": stored.status, "results": dict(stored.results),
         })
