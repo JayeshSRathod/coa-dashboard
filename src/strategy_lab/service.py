@@ -33,7 +33,7 @@ class StrategyLabService:
         self.experiments = experiment_repository
         self.promotions = promotion_repository
         self.notebook = notebook_repository
-        self.logger = logger or logging.getLogger("cqrp.strategy_lab")
+        self.logger = logger or logging.getLogger("cqrp.strategy_lab")\n        self.knowledge_builder = knowledge_builder
 
     def create_strategy(self, **values) -> Strategy:
         strategy = self.strategies.insert(Strategy.new(**values))
