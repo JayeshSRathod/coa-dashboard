@@ -74,6 +74,9 @@ class SnapshotCaptureService:
         validation = self.validator.validate(
             snapshot,
             previous_market_captured_at=previous["market_captured_at"] if previous else None,
+            previous_session_id=previous["session_id"] if previous else None,
+            previous_expiry=previous["expiry"] if previous else None,
+            previous_expiry_type=previous["expiry_type"] if previous else None,
             expected_instrument=expected_instrument,
         )
         self.metrics.record_capture((perf_counter() - started) * 1000)
