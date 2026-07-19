@@ -1,0 +1,1 @@
+"""Deterministic R&D framework for CQRP strategies and experiments."""
