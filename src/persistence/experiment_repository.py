@@ -30,7 +30,7 @@ class ExperimentRepository(SQLiteRepository):
         if row:
             return _experiment(row)
         with self.connection:
-            self.connection.execute("INSERT INTO experiments VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            self.connection.execute("INSERT INTO experiments VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (experiment.experiment_id, experiment.strategy_id, experiment.experiment_name,
                  experiment.objective, experiment.hypothesis, experiment.dataset_id,
                  experiment.configuration_id, experiment.market, json.dumps(experiment.symbols),
