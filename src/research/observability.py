@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import json
 import logging
 from threading import Lock
@@ -43,8 +43,15 @@ class SnapshotMetrics:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            values = asdict(self)
-        values.pop("_lock", None)
+            values = {
+                "capture_attempts": self.capture_attempts,
+                "snapshots_stored": self.snapshots_stored,
+                "validation_failures": self.validation_failures,
+                "feed_interruptions": self.feed_interruptions,
+                "degraded_snapshots": self.degraded_snapshots,
+                "total_capture_latency_ms": self.total_capture_latency_ms,
+                "total_persistence_latency_ms": self.total_persistence_latency_ms,
+            }
         values["average_capture_latency_ms"] = (
             values["total_capture_latency_ms"] / values["capture_attempts"]
             if values["capture_attempts"] else 0.0
