@@ -14,6 +14,10 @@ from .exposure_repository import ExposureRepository
 from .analytics_repository import AnalyticsRepository
 from .report_repository import ReportRepository
 from .performance_snapshot_repository import PerformanceSnapshotRepository
+from .order_repository import OrderRepository
+from .order_event_repository import OrderEventRepository
+from .broker_sync_repository import BrokerSyncRepository
+from .execution_repository import ExecutionRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -23,6 +27,24 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_order_repository(database_path: str) -> OrderRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return OrderRepository(connection)
+
+
+def initialize_order_event_repository(database_path: str) -> OrderEventRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return OrderEventRepository(connection)
+
+
+def initialize_broker_sync_repository(database_path: str) -> BrokerSyncRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return BrokerSyncRepository(connection)
 
 
 def initialize_analytics_repository(database_path: str) -> AnalyticsRepository:
@@ -99,6 +121,8 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 
 __all__ = [
     "AnalyticsRepository",
+    "BrokerSyncRepository",
+    "ExecutionRepository",
     "COAResultRepository",
     "SignalRepository",
     "ExposureRepository",
@@ -106,6 +130,8 @@ __all__ = [
     "RiskDecisionRepository",
     "ReportRepository",
     "PerformanceSnapshotRepository",
+    "OrderRepository",
+    "OrderEventRepository",
     "TradeEventRepository",
     "TradeRepository",
     "ValidationRepository",
@@ -115,6 +141,9 @@ __all__ = [
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
+    "initialize_broker_sync_repository",
+    "initialize_order_event_repository",
+    "initialize_order_repository",
     "initialize_coa_result_repository",
     "initialize_performance_snapshot_repository",
     "initialize_report_repository",
