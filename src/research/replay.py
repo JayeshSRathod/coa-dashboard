@@ -50,11 +50,15 @@ class ReplayService:
     def step_forward(self, steps: int = 1) -> dict[str, Any] | None:
         if steps < 1:
             raise ValueError("steps must be at least one")
+        if not self.snapshots:
+            return None
         self._position = min(self._position + steps, len(self.snapshots) - 1)
         return self.current
 
     def step_backward(self, steps: int = 1) -> dict[str, Any] | None:
         if steps < 1:
             raise ValueError("steps must be at least one")
+        if not self.snapshots:
+            return None
         self._position = max(self._position - steps, 0)
         return self.current
