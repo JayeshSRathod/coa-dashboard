@@ -72,6 +72,54 @@ class ResearchDatabaseTests(unittest.TestCase):
             1,
         )
 
+    def test_paper_trade_lifecycle_uses_events_not_updates(self):
+        snapshot_id = self.repository.append_snapshot(
+            {
+                "instrument": "NIFTY",
+                "spot": 25000.0,
+                "market_source": "simulated",
+                "coa_payload": {},
+            }
+        )
+        signal_id = self.repository.record_signal(
+            {
+                "snapshot_id": snapshot_id,
+                "instrument": "NIFTY",
+                "direction": "CALL",
+                "action": "PAPER_BUY",
+                "trade_allowed": True,
+                "rationale": {},
+            }
+        )
+        trade_id = self.repository.open_paper_trade(
+            {
+                "signal_id": signal_id,
+                "instrument": "NIFTY",
+                "direction": "CALL",
+                "quantity": 50,
+                "entry_spot": 25000.0,
+            }
+        )
+        self.repository.record_trade_update(
+            {"trade_id": trade_id, "spot": 25010.0, "unrealized_pnl": 100.0}
+        )
+        self.repository.record_trade_exit(
+            {
+                "trade_id": trade_id,
+                "exit_spot": 25020.0,
+                "realized_pnl": 200.0,
+                "exit_reason": "TARGET_1",
+            }
+        )
+        self.assertEqual(
+            self.repository.connection.execute("SELECT COUNT(*) FROM trade_updates").fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.repository.connection.execute("SELECT COUNT(*) FROM trade_exits").fetchone()[0],
+            1,
+        )
+
     def test_research_records_are_append_only(self):
         snapshot_id = self.repository.append_snapshot(
             {
