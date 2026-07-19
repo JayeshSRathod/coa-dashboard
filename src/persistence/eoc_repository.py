@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,8 +12,17 @@ from src.eoc.models import (Alert, AlertSeverity, AuditEvent, ConfigurationRecor
 from .repository import SQLiteRepository
 
 
+def _normalise(value: Any) -> Any:
+    """Convert immutable mappings to ordinary JSON-compatible containers."""
+    if isinstance(value, Mapping):
+        return {key: _normalise(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_normalise(item) for item in value]
+    return value
+
+
 def _json(value: Any) -> str:
-    return json.dumps(value, default=str, sort_keys=True, separators=(",", ":"))
+    return json.dumps(_normalise(value), default=str, sort_keys=True, separators=(",", ":"))
 
 
 def _mapping(value: str | None) -> dict:
