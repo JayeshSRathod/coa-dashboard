@@ -958,6 +958,29 @@ def _add_research_knowledge_store(connection: sqlite3.Connection) -> None:
             f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
         )
 
+
+def _add_portfolio_options_analytics_store(connection: sqlite3.Connection) -> None:
+    """Add append-only deterministic portfolio/options analytic observations."""
+    for table in (
+        "portfolio_analytics", "position_analytics", "greeks_analytics",
+        "option_chain_analytics", "iv_analytics", "stress_test_analytics",
+        "strategy_analytics",
+    ):
+        connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {table} (analysis_id TEXT PRIMARY KEY, "
+            "subject_id TEXT NOT NULL, payload_json TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE, "
+            "created_at TEXT NOT NULL)"
+        )
+        connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_subject_time ON {table}(subject_id, created_at)")
+        connection.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} "
+            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+        )
+        connection.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} "
+            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+        )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -972,4 +995,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=11, name="strategy_lab_v11", apply=_add_strategy_lab_store),
     Migration(12, "enterprise_operations_center", _add_enterprise_operations_store),
     Migration(13, "research_knowledge_engine", _add_research_knowledge_store),
+    Migration(14, "advanced_portfolio_options_analytics", _add_portfolio_options_analytics_store),
 )
