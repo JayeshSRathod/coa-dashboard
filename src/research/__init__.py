@@ -1,14 +1,5 @@
-"""CQRP capture, validation, observability, and replay services."""
+"""CQRP capture, validation, observability, and replay services.
 
-from .collector import CaptureResult, SnapshotCaptureService, SnapshotPollingService
-from .replay import ReplayService
-from .validation import SnapshotValidationResult, SnapshotValidator
-
-__all__ = [
-    "CaptureResult",
-    "ReplayService",
-    "SnapshotCaptureService",
-    "SnapshotPollingService",
-    "SnapshotValidationResult",
-    "SnapshotValidator",
-]
+Submodules are intentionally not imported here: persistence depends on the
+snapshot data model, so eager imports would create a circular dependency.
+"""
