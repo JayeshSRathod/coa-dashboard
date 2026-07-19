@@ -620,7 +620,7 @@ def _add_multi_broker_asset_store(connection: sqlite3.Connection) -> None:
             metadata_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             created_by TEXT NOT NULL,
-            UNIQUE(exchange, segment, trading_symbol, COALESCE(expiry, ''), COALESCE(strike, -1), COALESCE(option_type, ''))
+            UNIQUE(exchange, segment, trading_symbol, expiry, strike, option_type)
         );
         CREATE INDEX IF NOT EXISTS idx_instruments_lookup
             ON instruments(exchange, segment, trading_symbol, status);
