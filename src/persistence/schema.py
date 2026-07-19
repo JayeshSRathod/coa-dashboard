@@ -281,9 +281,71 @@ def _add_validation_result_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_research_signal_store(connection: sqlite3.Connection) -> None:
+    """Add immutable, non-executable research signal recommendations."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS research_signals (
+            signal_id TEXT PRIMARY KEY,
+            snapshot_id TEXT NOT NULL,
+            coa_result_id TEXT NOT NULL,
+            validation_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            experiment_id TEXT,
+            experiment_key TEXT NOT NULL DEFAULT '',
+            strategy_version TEXT NOT NULL,
+            signal_version TEXT NOT NULL,
+            instrument TEXT NOT NULL,
+            expiry TEXT,
+            signal_type TEXT NOT NULL,
+            signal_state TEXT NOT NULL,
+            direction TEXT,
+            entry_price REAL,
+            stop_loss REAL,
+            target_1 REAL,
+            target_2 REAL,
+            trailing_reference REAL,
+            confidence_score REAL NOT NULL,
+            confidence_band TEXT NOT NULL,
+            scenario TEXT,
+            eos REAL,
+            eor REAL,
+            momentum_json TEXT,
+            diversion_json TEXT,
+            reasons_json TEXT NOT NULL,
+            warnings_json TEXT NOT NULL,
+            details_json TEXT NOT NULL,
+            processing_time_ms REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            FOREIGN KEY (coa_result_id) REFERENCES coa_results(coa_result_id),
+            FOREIGN KEY (validation_id) REFERENCES validation_results(validation_id),
+            UNIQUE (validation_id, signal_version, experiment_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_signals_snapshot
+            ON research_signals(snapshot_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_research_signals_session
+            ON research_signals(session_id, created_at, signal_id);
+        CREATE INDEX IF NOT EXISTS idx_research_signals_confidence
+            ON research_signals(confidence_score, created_at);
+
+        CREATE TRIGGER IF NOT EXISTS research_signals_no_update
+            BEFORE UPDATE ON research_signals BEGIN
+            SELECT RAISE(ABORT, 'research_signals is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS research_signals_no_delete
+            BEFORE DELETE ON research_signals BEGIN
+            SELECT RAISE(ABORT, 'research_signals is append-only');
+            END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
     Migration(version=3, name="coa_research_results_v3", apply=_add_coa_result_store),
     Migration(version=4, name="validation_evidence_v4", apply=_add_validation_result_store),
+    Migration(version=5, name="research_signals_v5", apply=_add_research_signal_store),
 )

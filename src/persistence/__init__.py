@@ -5,6 +5,7 @@ from .migration import apply_migrations
 from .research_repository import ResearchRepository
 from .coa_result_repository import COAResultRepository
 from .validation_repository import ValidationRepository
+from .signal_repository import SignalRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -14,6 +15,13 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_signal_repository(database_path: str) -> SignalRepository:
+    """Open a migrated CQRP database for immutable research signals."""
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return SignalRepository(connection)
 
 
 def initialize_validation_repository(database_path: str) -> ValidationRepository:
@@ -39,6 +47,7 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 
 __all__ = [
     "COAResultRepository",
+    "SignalRepository",
     "ValidationRepository",
     "ResearchRepository",
     "RESEARCH_MIGRATIONS",
@@ -48,5 +57,6 @@ __all__ = [
     "initialize_coa_result_repository",
     "initialize_research_database",
     "initialize_snapshot_repository",
+    "initialize_signal_repository",
     "initialize_validation_repository",
 ]

@@ -1,0 +1,11 @@
+{
+  "minimum_confidence": 65,
+  "minimum_volume_score": 50,
+  "minimum_oi_score": 60,
+  "minimum_liquidity_score": 50,
+  "scenario_directions": {
+    "5": "BUY",
+    "4": "SELL"
+  },
+  "signal_version": "1.0.0"
+}
