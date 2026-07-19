@@ -12,6 +12,7 @@ venv/
 # Secrets — never commit real API keys
 .env
 .streamlit/secrets.toml
+data/configuration.json
 
 # OS / editor
 .DS_Store

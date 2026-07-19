@@ -4,3 +4,4 @@ plotly
 matplotlib
 requests
 pytest
+keyring>=25.0
