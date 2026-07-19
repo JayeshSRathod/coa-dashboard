@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from src.configuration_console import ConfigurationConsoleService, InMemorySecretStore, UnsafeExecutionModeError
+from src.configuration_console.secrets import CompositeSecretStore, SecretStoreUnavailable
 
 
 class ConfigurationConsoleTests(unittest.TestCase):
@@ -60,3 +61,14 @@ class ConfigurationConsoleTests(unittest.TestCase):
         self.assertEqual(operations["scanner_interval_seconds"], 30)
         with self.assertRaises(ValueError):
             self.service.save_operations(scanner_interval_seconds=0, max_open_positions=2)
+
+    def test_unavailable_local_keyring_is_treated_as_absent_for_reading(self) -> None:
+        class UnavailableStore:
+            def get(self, name):
+                raise SecretStoreUnavailable("no backend")
+
+            def set(self, name, value):
+                raise SecretStoreUnavailable("no backend")
+
+        store = CompositeSecretStore(environment=InMemorySecretStore(), local=UnavailableStore())
+        self.assertIsNone(store.get("CQRP_DHAN_ACCESS_TOKEN"))

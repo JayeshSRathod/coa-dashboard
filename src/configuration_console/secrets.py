@@ -47,7 +47,12 @@ class KeyringSecretStore:
         return keyring
 
     def get(self, name: str) -> str | None:
-        return self._keyring().get_password(self.service_name, name)
+        try:
+            return self._keyring().get_password(self.service_name, name)
+        except Exception:
+            # A cloud runtime may not provide an OS keyring backend. Treat that
+            # as an absent local credential rather than making the dashboard fail.
+            return None
 
     def set(self, name: str, value: str) -> None:
         if not value:
@@ -88,7 +93,13 @@ class CompositeSecretStore:
         self.local = local or KeyringSecretStore()
 
     def get(self, name: str) -> str | None:
-        return self.environment.get(name) or self.local.get(name)
+        value = self.environment.get(name)
+        if value:
+            return value
+        try:
+            return self.local.get(name)
+        except SecretStoreUnavailable:
+            return None
 
     def set(self, name: str, value: str) -> None:
         self.local.set(name, value)
