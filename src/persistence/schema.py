@@ -514,6 +514,89 @@ def _add_performance_analytics_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_live_execution_store(connection: sqlite3.Connection) -> None:
+    """Add append-only gateway orders, lifecycle events, and broker sync evidence."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS execution_orders (
+            order_id TEXT PRIMARY KEY,
+            execution_id TEXT NOT NULL,
+            broker_order_id TEXT,
+            client_order_key TEXT NOT NULL UNIQUE,
+            signal_id TEXT,
+            trade_id TEXT,
+            portfolio_id TEXT,
+            broker_name TEXT NOT NULL,
+            execution_mode TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            expiry TEXT,
+            strike REAL,
+            option_type TEXT,
+            order_type TEXT NOT NULL,
+            product_type TEXT NOT NULL,
+            transaction_type TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            price REAL,
+            trigger_price REAL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (signal_id) REFERENCES research_signals(signal_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_execution_orders_signal ON execution_orders(signal_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_execution_orders_broker ON execution_orders(broker_name, created_at);
+        CREATE TABLE IF NOT EXISTS order_events (
+            event_id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (order_id) REFERENCES execution_orders(order_id),
+            UNIQUE(order_id, event_type, occurred_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_order_events_order_time
+            ON order_events(order_id, occurred_at, event_id);
+        CREATE TABLE IF NOT EXISTS broker_sync_events (
+            sync_id TEXT PRIMARY KEY,
+            broker_name TEXT NOT NULL,
+            sync_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_broker_sync_events_broker_time
+            ON broker_sync_events(broker_name, occurred_at);
+        CREATE TRIGGER IF NOT EXISTS execution_orders_no_update
+            BEFORE UPDATE ON execution_orders BEGIN
+            SELECT RAISE(ABORT, 'execution_orders is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS execution_orders_no_delete
+            BEFORE DELETE ON execution_orders BEGIN
+            SELECT RAISE(ABORT, 'execution_orders is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS order_events_no_update
+            BEFORE UPDATE ON order_events BEGIN
+            SELECT RAISE(ABORT, 'order_events is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS order_events_no_delete
+            BEFORE DELETE ON order_events BEGIN
+            SELECT RAISE(ABORT, 'order_events is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS broker_sync_events_no_update
+            BEFORE UPDATE ON broker_sync_events BEGIN
+            SELECT RAISE(ABORT, 'broker_sync_events is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS broker_sync_events_no_delete
+            BEFORE DELETE ON broker_sync_events BEGIN
+            SELECT RAISE(ABORT, 'broker_sync_events is append-only');
+            END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -523,4 +606,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=6, name="event_sourced_paper_trades_v6", apply=_add_paper_execution_store),
     Migration(version=7, name="portfolio_risk_v7", apply=_add_portfolio_risk_store),
     Migration(version=8, name="performance_analytics_v8", apply=_add_performance_analytics_store),
+    Migration(version=9, name="live_execution_gateway_v9", apply=_add_live_execution_store),
 )

@@ -1,0 +1,11 @@
+{
+  "execution_mode": "DISABLED",
+  "default_broker": "fyers",
+  "trading_enabled": false,
+  "kill_switch": true,
+  "emergency_stop": false,
+  "dry_run": true,
+  "max_order_quantity": 500,
+  "max_order_value": 200000.0,
+  "retry_attempts": 2
+}
