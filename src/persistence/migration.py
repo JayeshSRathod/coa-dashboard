@@ -1,15 +1,43 @@
-"""Migration registry boundary; concrete research migrations begin in Sprint-002."""
+"""Versioned, transactional SQLite migration support."""
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import sqlite3
 
-Migration = Callable[[sqlite3.Connection], None]
+
+MigrationFunction = Callable[[sqlite3.Connection], None]
 
 
-def apply_migrations(connection: sqlite3.Connection, migrations: list[Migration]) -> None:
-    """Apply supplied migrations atomically; no schema is introduced in Sprint-001."""
+@dataclass(frozen=True)
+class Migration:
+    version: int
+    name: str
+    apply: MigrationFunction
+
+
+def apply_migrations(connection: sqlite3.Connection, migrations: tuple[Migration, ...]) -> None:
+    """Apply each unapplied migration once, in ascending version order."""
     with connection:
-        for migration in migrations:
-            migration(connection)
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
+        applied = {
+            row[0] for row in connection.execute("SELECT version FROM schema_migrations")
+        }
+        for migration in sorted(migrations, key=lambda item: item.version):
+            if migration.version in applied:
+                continue
+            migration.apply(connection)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, ?, ?)",
+                (migration.version, migration.name, datetime.now(timezone.utc).isoformat()),
+            )
