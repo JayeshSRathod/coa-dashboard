@@ -18,6 +18,11 @@ from .order_repository import OrderRepository
 from .order_event_repository import OrderEventRepository
 from .broker_sync_repository import BrokerSyncRepository
 from .execution_repository import ExecutionRepository
+from .broker_repository import BrokerRepository
+from .broker_account_repository import BrokerAccountRepository
+from .instrument_repository import InstrumentRepository
+from .execution_route_repository import ExecutionRouteRepository
+from .market_provider_repository import MarketProviderRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -27,6 +32,36 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_broker_repository(database_path: str) -> BrokerRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return BrokerRepository(connection)
+
+
+def initialize_broker_account_repository(database_path: str) -> BrokerAccountRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return BrokerAccountRepository(connection)
+
+
+def initialize_instrument_repository(database_path: str) -> InstrumentRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return InstrumentRepository(connection)
+
+
+def initialize_execution_route_repository(database_path: str) -> ExecutionRouteRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return ExecutionRouteRepository(connection)
+
+
+def initialize_market_provider_repository(database_path: str) -> MarketProviderRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return MarketProviderRepository(connection)
 
 
 def initialize_execution_repository(database_path: str) -> ExecutionRepository:
@@ -127,6 +162,11 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 
 __all__ = [
     "AnalyticsRepository",
+    "BrokerRepository",
+    "BrokerAccountRepository",
+    "InstrumentRepository",
+    "ExecutionRouteRepository",
+    "MarketProviderRepository",
     "BrokerSyncRepository",
     "ExecutionRepository",
     "COAResultRepository",
@@ -147,6 +187,11 @@ __all__ = [
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
+    "initialize_broker_repository",
+    "initialize_broker_account_repository",
+    "initialize_execution_route_repository",
+    "initialize_instrument_repository",
+    "initialize_market_provider_repository",
     "initialize_broker_sync_repository",
     "initialize_order_event_repository",
     "initialize_order_repository",
