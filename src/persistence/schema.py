@@ -230,8 +230,60 @@ def _add_coa_result_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_validation_result_store(connection: sqlite3.Connection) -> None:
+    """Add append-only validation evidence for persisted COA research results."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS validation_results (
+            validation_id TEXT PRIMARY KEY,
+            coa_result_id TEXT NOT NULL,
+            snapshot_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            experiment_id TEXT,
+            experiment_key TEXT NOT NULL DEFAULT '',
+            strategy_version TEXT NOT NULL,
+            validation_version TEXT NOT NULL,
+            volume_score REAL NOT NULL,
+            oi_score REAL NOT NULL,
+            strike_score REAL NOT NULL,
+            liquidity_score REAL NOT NULL,
+            market_context_score REAL NOT NULL,
+            historical_score REAL,
+            overall_score REAL NOT NULL,
+            confidence_band TEXT NOT NULL,
+            is_valid INTEGER NOT NULL,
+            failure_reasons_json TEXT NOT NULL,
+            warning_reasons_json TEXT NOT NULL,
+            scoring_details_json TEXT NOT NULL,
+            processing_time_ms REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (coa_result_id) REFERENCES coa_results(coa_result_id),
+            FOREIGN KEY (snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            UNIQUE (coa_result_id, validation_version, experiment_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_validation_results_coa
+            ON validation_results(coa_result_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_validation_results_snapshot
+            ON validation_results(snapshot_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_validation_results_session
+            ON validation_results(session_id, created_at, validation_id);
+
+        CREATE TRIGGER IF NOT EXISTS validation_results_no_update
+            BEFORE UPDATE ON validation_results BEGIN
+            SELECT RAISE(ABORT, 'validation_results is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS validation_results_no_delete
+            BEFORE DELETE ON validation_results BEGIN
+            SELECT RAISE(ABORT, 'validation_results is append-only');
+            END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
     Migration(version=3, name="coa_research_results_v3", apply=_add_coa_result_store),
+    Migration(version=4, name="validation_evidence_v4", apply=_add_validation_result_store),
 )
