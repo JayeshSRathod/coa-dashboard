@@ -698,6 +698,125 @@ def _add_multi_broker_asset_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_strategy_lab_store(connection: sqlite3.Connection) -> None:
+    """Add append-only strategy, experiment, dataset, and notebook research records."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS strategies (
+            strategy_id TEXT PRIMARY KEY,
+            strategy_name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            category TEXT NOT NULL,
+            asset_class TEXT NOT NULL,
+            market TEXT NOT NULL,
+            version TEXT NOT NULL,
+            status TEXT NOT NULL,
+            parent_strategy_id TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            UNIQUE(strategy_name, version)
+        );
+        CREATE TABLE IF NOT EXISTS strategy_configurations (
+            configuration_id TEXT PRIMARY KEY,
+            strategy_id TEXT NOT NULL,
+            configuration_json TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(strategy_id) REFERENCES strategies(strategy_id),
+            UNIQUE(strategy_id, checksum)
+        );
+        CREATE TABLE IF NOT EXISTS datasets (
+            dataset_id TEXT PRIMARY KEY,
+            market TEXT NOT NULL,
+            source TEXT NOT NULL,
+            symbols_json TEXT NOT NULL,
+            from_date TEXT NOT NULL,
+            to_date TEXT NOT NULL,
+            snapshot_count INTEGER NOT NULL,
+            checksum TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS experiments (
+            experiment_id TEXT PRIMARY KEY,
+            strategy_id TEXT NOT NULL,
+            experiment_name TEXT NOT NULL,
+            objective TEXT NOT NULL,
+            hypothesis TEXT NOT NULL,
+            dataset_id TEXT NOT NULL,
+            configuration_id TEXT NOT NULL,
+            market TEXT NOT NULL,
+            symbols_json TEXT NOT NULL,
+            from_date TEXT NOT NULL,
+            to_date TEXT NOT NULL,
+            execution_mode TEXT NOT NULL,
+            status TEXT NOT NULL,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(strategy_id) REFERENCES strategies(strategy_id),
+            FOREIGN KEY(dataset_id) REFERENCES datasets(dataset_id),
+            FOREIGN KEY(configuration_id) REFERENCES strategy_configurations(configuration_id),
+            UNIQUE(strategy_id, experiment_name)
+        );
+        CREATE TABLE IF NOT EXISTS experiment_runs (
+            run_id TEXT PRIMARY KEY,
+            experiment_id TEXT NOT NULL,
+            input_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL,
+            execution_time_ms REAL NOT NULL,
+            results_json TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(experiment_id) REFERENCES experiments(experiment_id),
+            UNIQUE(experiment_id, input_fingerprint)
+        );
+        CREATE TABLE IF NOT EXISTS promotion_decisions (
+            promotion_id TEXT PRIMARY KEY,
+            strategy_id TEXT NOT NULL,
+            experiment_id TEXT NOT NULL,
+            recommendation TEXT NOT NULL,
+            criteria_json TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            decision TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(strategy_id) REFERENCES strategies(strategy_id),
+            FOREIGN KEY(experiment_id) REFERENCES experiments(experiment_id)
+        );
+        CREATE TABLE IF NOT EXISTS research_notebook_entries (
+            entry_id TEXT PRIMARY KEY,
+            experiment_id TEXT NOT NULL,
+            entry_type TEXT NOT NULL,
+            content_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(experiment_id) REFERENCES experiments(experiment_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_experiments_strategy ON experiments(strategy_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_experiment_runs_experiment ON experiment_runs(experiment_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_notebook_experiment ON research_notebook_entries(experiment_id, created_at);
+        CREATE TRIGGER IF NOT EXISTS strategies_no_update BEFORE UPDATE ON strategies BEGIN SELECT RAISE(ABORT, 'strategies is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS strategies_no_delete BEFORE DELETE ON strategies BEGIN SELECT RAISE(ABORT, 'strategies is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS strategy_configurations_no_update BEFORE UPDATE ON strategy_configurations BEGIN SELECT RAISE(ABORT, 'strategy_configurations is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS strategy_configurations_no_delete BEFORE DELETE ON strategy_configurations BEGIN SELECT RAISE(ABORT, 'strategy_configurations is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS datasets_no_update BEFORE UPDATE ON datasets BEGIN SELECT RAISE(ABORT, 'datasets is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS datasets_no_delete BEFORE DELETE ON datasets BEGIN SELECT RAISE(ABORT, 'datasets is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS experiments_no_update BEFORE UPDATE ON experiments BEGIN SELECT RAISE(ABORT, 'experiments is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS experiments_no_delete BEFORE DELETE ON experiments BEGIN SELECT RAISE(ABORT, 'experiments is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS experiment_runs_no_update BEFORE UPDATE ON experiment_runs BEGIN SELECT RAISE(ABORT, 'experiment_runs is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS experiment_runs_no_delete BEFORE DELETE ON experiment_runs BEGIN SELECT RAISE(ABORT, 'experiment_runs is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS promotion_decisions_no_update BEFORE UPDATE ON promotion_decisions BEGIN SELECT RAISE(ABORT, 'promotion_decisions is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS promotion_decisions_no_delete BEFORE DELETE ON promotion_decisions BEGIN SELECT RAISE(ABORT, 'promotion_decisions is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS research_notebook_entries_no_update BEFORE UPDATE ON research_notebook_entries BEGIN SELECT RAISE(ABORT, 'research_notebook_entries is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS research_notebook_entries_no_delete BEFORE DELETE ON research_notebook_entries BEGIN SELECT RAISE(ABORT, 'research_notebook_entries is append-only'); END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -709,4 +828,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=8, name="performance_analytics_v8", apply=_add_performance_analytics_store),
     Migration(version=9, name="live_execution_gateway_v9", apply=_add_live_execution_store),
     Migration(version=10, name="multi_broker_asset_v10", apply=_add_multi_broker_asset_store),
+    Migration(version=11, name="strategy_lab_v11", apply=_add_strategy_lab_store),
 )
