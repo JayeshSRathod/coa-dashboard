@@ -20,7 +20,7 @@ class DatasetRepository(SQLiteRepository):
         if row:
             return _decode(row)
         with self.connection:
-            self.connection.execute("INSERT INTO datasets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            self.connection.execute("INSERT INTO datasets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (dataset.dataset_id, dataset.market, dataset.source, json.dumps(dataset.symbols),
                  dataset.from_date, dataset.to_date, dataset.snapshot_count, dataset.checksum,
                  dataset.created_at, dataset.created_by))
