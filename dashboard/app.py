@@ -1,4 +1,15 @@
 """Local Streamlit entrypoint for CQRP Dashboard 2.0."""
+
+from pathlib import Path
+import sys
+
+# Streamlit executes this file as a script, making ``dashboard/`` the initial
+# import root. Add the repository root so package imports work locally and in
+# Streamlit Cloud deployments.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from dashboard.services import DashboardApplicationService
 from dashboard.view_models import serialise
 PAGES={"Home":"get_home_dashboard","Market Intelligence":"get_market_dashboard","Scanner":"get_scanner_dashboard","COA Research":"get_coa_dashboard","Strategy Lab":"get_strategy_lab_dashboard","Research Knowledge":"get_research_knowledge_dashboard","Portfolio":"get_portfolio_dashboard","Options Analytics":"get_options_dashboard","Trade Journal":"get_trade_journal_dashboard","Performance":"get_performance_dashboard","Execution":"get_execution_dashboard","Operations Center":"get_operations_dashboard","Alerts":"get_alert_dashboard","Configuration":"get_configuration_dashboard"}
