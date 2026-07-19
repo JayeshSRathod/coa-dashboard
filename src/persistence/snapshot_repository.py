@@ -131,4 +131,9 @@ class SnapshotRepository(SQLiteRepository):
             rows = self.connection.execute(
                 "SELECT * FROM system_events ORDER BY occurred_at ASC"
             ).fetchall()
-        return [dict(row) for row in rows]
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            event = dict(row)
+            event["payload"] = json.loads(event["payload_json"])
+            events.append(event)
+        return events
