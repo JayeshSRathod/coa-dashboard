@@ -34,8 +34,13 @@ class KnowledgeQueryEngine:
         for key, facts in grouped.items():
             aggregate = summarise(facts)
             value = aggregate["metrics"].get(metric, float("-inf") if reverse else float("inf"))
-            ranked.append({"subject": key, "score": value, **aggregate})
-        return sorted(ranked, key=lambda item: (item["score"], item["subject"]), reverse=reverse)
+            display_name = (
+                facts[0].summary.get("strategy_name") if domain == "STRATEGY" else key
+            ) or key
+            ranked.append({"subject": display_name, "subject_key": key, "score": value, **aggregate})
+        return sorted(ranked, key=lambda item: item["subject_key"]) if not ranked else sorted(
+            ranked, key=lambda item: item["subject_key"]) and sorted(
+            ranked, key=lambda item: item["score"], reverse=reverse)
 
     def find_best_strategy(self):
         return (self._rank("STRATEGY") or [None])[0]
