@@ -908,6 +908,56 @@ def _add_enterprise_operations_store(connection: sqlite3.Connection) -> None:
             f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
         )
 
+
+def _add_research_knowledge_store(connection: sqlite3.Connection) -> None:
+    """Add immutable deterministic knowledge facts and generated reports."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS knowledge_facts (
+            fact_id TEXT PRIMARY KEY,
+            source_run_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            subject_type TEXT NOT NULL,
+            subject_key TEXT NOT NULL,
+            strategy_id TEXT,
+            experiment_id TEXT NOT NULL,
+            market TEXT,
+            metrics_json TEXT NOT NULL,
+            summary_json TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(source_run_id) REFERENCES experiment_runs(run_id),
+            FOREIGN KEY(experiment_id) REFERENCES experiments(experiment_id),
+            UNIQUE(source_run_id, domain, subject_type, subject_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_facts_domain_subject
+            ON knowledge_facts(domain, subject_key, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_knowledge_facts_experiment
+            ON knowledge_facts(experiment_id, occurred_at);
+        CREATE TABLE IF NOT EXISTS knowledge_reports (
+            report_id TEXT PRIMARY KEY,
+            report_type TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            scope_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            created_by TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_reports_type_time
+            ON knowledge_reports(report_type, generated_at);
+        """
+    )
+    for table in ("knowledge_facts", "knowledge_reports"):
+        connection.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} "
+            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+        )
+        connection.execute(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} "
+            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+        )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -921,4 +971,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=10, name="multi_broker_asset_v10", apply=_add_multi_broker_asset_store),
     Migration(version=11, name="strategy_lab_v11", apply=_add_strategy_lab_store),
     Migration(12, "enterprise_operations_center", _add_enterprise_operations_store),
+    Migration(13, "research_knowledge_engine", _add_research_knowledge_store),
 )
