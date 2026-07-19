@@ -46,8 +46,9 @@ class KnowledgeBuilder:
         )
         facts = [
             KnowledgeFact.new(domain="STRATEGY", subject_type="STRATEGY",
-                              subject_key=(strategy.strategy_name if strategy else experiment.strategy_id),
-                              metrics=results, summary={"version": getattr(strategy, "version", None)}, **base),
+                              subject_key=experiment.strategy_id, metrics=results,
+                              summary={"strategy_name": getattr(strategy, "strategy_name", None),
+                                       "version": getattr(strategy, "version", None)}, **base),
             KnowledgeFact.new(domain="EXPERIMENT", subject_type="EXPERIMENT",
                               subject_key=experiment.experiment_id, metrics=results,
                               summary={"name": experiment.experiment_name, "dataset_id": experiment.dataset_id,
