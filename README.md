@@ -1,5 +1,20 @@
 # COA Dashboard
 
+## CQRP 3.0 workstation (local preview)
+
+The panel-based CQRP 3.0 workstation is a separate local React application.
+It is currently a safe presentation foundation: it has no broker order path,
+shows only `PAPER` or `DISABLED` execution state, and does not replace the
+Streamlit configuration and diagnostics interface.
+
+```powershell
+cd workstation
+npm.cmd install
+npm.cmd run dev
+```
+
+See `docs/sprints/cqrp-3.0-workspace-foundation.md` for the current scope.
+
 ## Setup (VS Code / local machine)
 
 ```bash
@@ -110,15 +125,11 @@ This is a one-time setup with several steps — take them in order.
 app_id = "your-real-app-id"
 secret_key = "your-real-secret-key"
 refresh_token = "your-real-refresh-token"
-pin = "your-real-4-digit-pin"
 ```
 
-**⚠️ Security note**: this stores your trading PIN in the app's secrets — a
-materially more sensitive credential than an API token, since it's what
-authorizes trades. This is the trade-off for not needing a daily manual
-step. If you'd rather not store the PIN, the alternative is generating a
-fresh `access_token` manually each day and pasting just that (no PIN needed)
-— ask if you'd like that simpler variant instead.
+**Security note**: CQRP must never store a broker PIN. Use a short-lived or
+manually refreshed session token where a broker requires interactive PIN or
+TOTP confirmation. Do not commit any credential or add it to SQLite.
 
 **6.** Reboot the app. If Fyers is configured, the sidebar shows a **"Use
 live data"** checkbox with a caption confirming the priority order

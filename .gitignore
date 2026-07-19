@@ -13,6 +13,9 @@ venv/
 .env
 .streamlit/secrets.toml
 data/configuration.json
+workstation/node_modules/
+workstation/dist/
+workstation/.vite/
 
 # OS / editor
 .DS_Store
