@@ -5,3 +5,7 @@ poll_interval_seconds = 3
 [storage]
 database_path = "data/cqrp.db"
 log_dir = "logs"
+
+[snapshot_capture]
+# Equivalent environment variable: CQRP_SNAPSHOT_INTERVAL_SECONDS
+interval_seconds = 3
