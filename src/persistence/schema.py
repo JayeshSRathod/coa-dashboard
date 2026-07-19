@@ -597,6 +597,107 @@ def _add_live_execution_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_multi_broker_asset_store(connection: sqlite3.Connection) -> None:
+    """Add append-only broker, account, routing, provider, and instrument registry records."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS brokers (
+            broker_id TEXT PRIMARY KEY,
+            broker_name TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS instruments (
+            instrument_id TEXT PRIMARY KEY,
+            exchange TEXT NOT NULL,
+            segment TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            trading_symbol TEXT NOT NULL,
+            isin TEXT,
+            expiry TEXT,
+            strike REAL,
+            option_type TEXT,
+            lot_size INTEGER NOT NULL,
+            tick_size REAL NOT NULL,
+            currency TEXT NOT NULL,
+            margin_group TEXT,
+            status TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            UNIQUE(exchange, segment, trading_symbol, expiry, strike, option_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_instruments_lookup
+            ON instruments(exchange, segment, trading_symbol, status);
+        CREATE TABLE IF NOT EXISTS broker_accounts (
+            account_id TEXT PRIMARY KEY,
+            broker_name TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            default_portfolio_id TEXT,
+            status TEXT NOT NULL,
+            permissions_json TEXT NOT NULL,
+            execution_enabled INTEGER NOT NULL,
+            last_sync_at TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            UNIQUE(broker_name, client_id)
+        );
+        CREATE TABLE IF NOT EXISTS execution_routes (
+            route_id TEXT PRIMARY KEY,
+            portfolio_id TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            broker_name TEXT NOT NULL,
+            priority INTEGER NOT NULL,
+            enabled INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(account_id) REFERENCES broker_accounts(account_id),
+            UNIQUE(portfolio_id, account_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_execution_routes_portfolio
+            ON execution_routes(portfolio_id, enabled, priority);
+        CREATE TABLE IF NOT EXISTS market_providers (
+            provider_id TEXT PRIMARY KEY,
+            provider_name TEXT NOT NULL UNIQUE,
+            asset_classes_json TEXT NOT NULL,
+            enabled INTEGER NOT NULL,
+            priority INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS symbol_mappings (
+            mapping_id TEXT PRIMARY KEY,
+            instrument_id TEXT NOT NULL,
+            broker_name TEXT NOT NULL,
+            broker_symbol TEXT NOT NULL,
+            broker_token TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY(instrument_id) REFERENCES instruments(instrument_id),
+            UNIQUE(instrument_id, broker_name),
+            UNIQUE(broker_name, broker_symbol)
+        );
+        CREATE INDEX IF NOT EXISTS idx_symbol_mappings_broker_symbol
+            ON symbol_mappings(broker_name, broker_symbol);
+        CREATE TRIGGER IF NOT EXISTS brokers_no_update BEFORE UPDATE ON brokers BEGIN SELECT RAISE(ABORT, 'brokers is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS brokers_no_delete BEFORE DELETE ON brokers BEGIN SELECT RAISE(ABORT, 'brokers is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS instruments_no_update BEFORE UPDATE ON instruments BEGIN SELECT RAISE(ABORT, 'instruments is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS instruments_no_delete BEFORE DELETE ON instruments BEGIN SELECT RAISE(ABORT, 'instruments is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS broker_accounts_no_update BEFORE UPDATE ON broker_accounts BEGIN SELECT RAISE(ABORT, 'broker_accounts is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS broker_accounts_no_delete BEFORE DELETE ON broker_accounts BEGIN SELECT RAISE(ABORT, 'broker_accounts is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS execution_routes_no_update BEFORE UPDATE ON execution_routes BEGIN SELECT RAISE(ABORT, 'execution_routes is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS execution_routes_no_delete BEFORE DELETE ON execution_routes BEGIN SELECT RAISE(ABORT, 'execution_routes is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS market_providers_no_update BEFORE UPDATE ON market_providers BEGIN SELECT RAISE(ABORT, 'market_providers is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS market_providers_no_delete BEFORE DELETE ON market_providers BEGIN SELECT RAISE(ABORT, 'market_providers is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS symbol_mappings_no_update BEFORE UPDATE ON symbol_mappings BEGIN SELECT RAISE(ABORT, 'symbol_mappings is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS symbol_mappings_no_delete BEFORE DELETE ON symbol_mappings BEGIN SELECT RAISE(ABORT, 'symbol_mappings is append-only'); END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -607,4 +708,5 @@ RESEARCH_MIGRATIONS = (
     Migration(version=7, name="portfolio_risk_v7", apply=_add_portfolio_risk_store),
     Migration(version=8, name="performance_analytics_v8", apply=_add_performance_analytics_store),
     Migration(version=9, name="live_execution_gateway_v9", apply=_add_live_execution_store),
+    Migration(version=10, name="multi_broker_asset_v10", apply=_add_multi_broker_asset_store),
 )

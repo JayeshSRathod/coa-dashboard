@@ -1,0 +1,7 @@
+{
+  "default_broker": "fyers",
+  "default_market_provider": "fyers",
+  "routing_strategy": "primary",
+  "fallback_broker": "dhan",
+  "enable_failover": false
+}
