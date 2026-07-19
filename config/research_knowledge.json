@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "mode": "DETERMINISTIC",
+  "auto_extract_completed_experiments": true,
+  "ranking_metric": "win_rate",
+  "report_formats": ["JSON", "CSV"],
+  "future_export_adapters": ["PDF", "EXCEL"],
+  "ai_enabled": false
+}
