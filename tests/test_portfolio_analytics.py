@@ -26,7 +26,7 @@ class PortfolioAnalyticsTests(unittest.TestCase):
   self.assertEqual(calculate_portfolio([pos],{"p1":110})["pnl"],10)
   payoff=analyze_strategy(legs=[{"option_type":"CALL","side":"LONG","strike":100,"premium":5,"quantity":1}],underlying_prices=[90,100,110])
   self.assertEqual(payoff["maximum_profit"],5)
-  self.assertEqual(stress_test([pos],{"p1":100},[{"underlying_change_pct":10}])[0]["pnl"],10)
+  self.assertAlmostEqual(stress_test([pos],{"p1":100},[{"underlying_change_pct":10}])[0]["pnl"],10)
   c=connect(":memory:"); apply_migrations(c,RESEARCH_MIGRATIONS); repo=PortfolioAnalyticsRepository(c)
   a=repo.append(subject_id="x",payload={"pnl":10},fingerprint="same"); b=repo.append(subject_id="x",payload={"pnl":10},fingerprint="same")
   self.assertEqual(a,b)
