@@ -21,6 +21,19 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _normalise_timestamp(value: str | None) -> str:
+    """Use UTC for replay ordering, leaving malformed provider values for validation."""
+    if value is None:
+        return _utc_now()
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return value
+        return parsed.astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return value
+
+
 def _session_id(instrument: str, market_captured_at: str) -> str:
     return f"{instrument}:{market_captured_at[:10]}"
 
@@ -53,7 +66,7 @@ class SnapshotCaptureService:
     ) -> CaptureResult:
         started = perf_counter()
         ingested_at = _utc_now()
-        market_captured_at = payload.market_captured_at or ingested_at
+        market_captured_at = _normalise_timestamp(payload.market_captured_at)
         snapshot = CapturedSnapshot.new(
             session_id=payload.session_id or _session_id(payload.instrument, market_captured_at),
             instrument=payload.instrument,
@@ -102,7 +115,7 @@ class SnapshotCaptureService:
         emit_snapshot_event(
             self.logger, "snapshot_stored", instrument=snapshot.instrument,
             snapshot_id=snapshot.snapshot_id, completeness=validation.data_completeness,
-            capture_latency_ms=self.metrics.snapshot()["average_capture_latency_ms"],
+            capture_latency_ms=(perf_counter() - started) * 1000,
             persistence_latency_ms=persistence_latency_ms,
         )
         if not validation.is_complete:
