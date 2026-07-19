@@ -29,6 +29,12 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     return ResearchRepository(connection)
 
 
+def initialize_execution_repository(database_path: str) -> ExecutionRepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return ExecutionRepository(OrderRepository(connection), OrderEventRepository(connection))
+
+
 def initialize_order_repository(database_path: str) -> OrderRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
@@ -150,6 +156,7 @@ __all__ = [
     "initialize_research_database",
     "initialize_snapshot_repository",
     "initialize_signal_repository",
+    "initialize_execution_repository",
     "initialize_exposure_repository",
     "initialize_portfolio_repository",
     "initialize_risk_decision_repository",
