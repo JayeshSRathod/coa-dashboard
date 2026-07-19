@@ -76,8 +76,7 @@ class PaperExecutionEngine:
     def _exit_event(self,trade,state,snapshot,quantity,event_type,reason):
         price=self._fill(trade,snapshot,False)
         if price is None:return None
-        entry_cost=0.0
-        # Entry costs are captured in the only ENTRY_FILLED event; state caller supplies no events.
+        entry_cost=transaction_cost(state.executed_entry or price,quantity,self.config)
         cost=transaction_cost(price,quantity,self.config)
         delta=(price-(state.executed_entry or price))*quantity-cost-entry_cost
         return TradeEvent.new(trade_id=trade.trade_id,session_id=trade.session_id,source_snapshot_id=snapshot["snapshot_id"],
