@@ -342,10 +342,82 @@ def _add_research_signal_store(connection: sqlite3.Connection) -> None:
         """
     )
 
+
+def _add_paper_execution_store(connection: sqlite3.Connection) -> None:
+    """Add event-sourced paper-trading identities and immutable lifecycle events."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS simulated_trades (
+            trade_id TEXT PRIMARY KEY,
+            signal_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            snapshot_id TEXT NOT NULL,
+            experiment_id TEXT,
+            experiment_key TEXT NOT NULL DEFAULT '',
+            strategy_version TEXT NOT NULL,
+            execution_version TEXT NOT NULL,
+            instrument TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            expiry TEXT,
+            strike REAL,
+            option_type TEXT,
+            quantity INTEGER NOT NULL,
+            intended_entry REAL,
+            initial_stop_loss REAL,
+            initial_target_1 REAL,
+            initial_target_2 REAL,
+            initial_trailing_reference REAL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (signal_id) REFERENCES research_signals(signal_id),
+            FOREIGN KEY (snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            UNIQUE (signal_id, execution_version, experiment_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_simulated_trades_signal ON simulated_trades(signal_id);
+        CREATE INDEX IF NOT EXISTS idx_simulated_trades_session ON simulated_trades(session_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS simulated_trade_events (
+            event_id TEXT PRIMARY KEY,
+            trade_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            source_snapshot_id TEXT,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            event_payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            FOREIGN KEY (trade_id) REFERENCES simulated_trades(trade_id),
+            UNIQUE (trade_id, event_type, source_snapshot_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_simulated_trade_events_trade_time
+            ON simulated_trade_events(trade_id, occurred_at, event_id);
+        CREATE INDEX IF NOT EXISTS idx_simulated_trade_events_session_time
+            ON simulated_trade_events(session_id, occurred_at, event_id);
+
+        CREATE TRIGGER IF NOT EXISTS simulated_trades_no_update
+            BEFORE UPDATE ON simulated_trades BEGIN
+            SELECT RAISE(ABORT, 'simulated_trades is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS simulated_trades_no_delete
+            BEFORE DELETE ON simulated_trades BEGIN
+            SELECT RAISE(ABORT, 'simulated_trades is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS simulated_trade_events_no_update
+            BEFORE UPDATE ON simulated_trade_events BEGIN
+            SELECT RAISE(ABORT, 'simulated_trade_events is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS simulated_trade_events_no_delete
+            BEFORE DELETE ON simulated_trade_events BEGIN
+            SELECT RAISE(ABORT, 'simulated_trade_events is append-only');
+            END;
+        """
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
     Migration(version=3, name="coa_research_results_v3", apply=_add_coa_result_store),
     Migration(version=4, name="validation_evidence_v4", apply=_add_validation_result_store),
     Migration(version=5, name="research_signals_v5", apply=_add_research_signal_store),
+    Migration(version=6, name="event_sourced_paper_trades_v6", apply=_add_paper_execution_store),
 )
