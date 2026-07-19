@@ -4,6 +4,7 @@ from .connection import connect
 from .migration import apply_migrations
 from .research_repository import ResearchRepository
 from .coa_result_repository import COAResultRepository
+from .validation_repository import ValidationRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 
@@ -13,6 +14,13 @@ def initialize_research_database(database_path: str) -> ResearchRepository:
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return ResearchRepository(connection)
+
+
+def initialize_validation_repository(database_path: str) -> ValidationRepository:
+    """Open a migrated CQRP database for append-only validation results."""
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return ValidationRepository(connection)
 
 
 def initialize_coa_result_repository(database_path: str) -> COAResultRepository:
@@ -31,6 +39,7 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
 
 __all__ = [
     "COAResultRepository",
+    "ValidationRepository",
     "ResearchRepository",
     "RESEARCH_MIGRATIONS",
     "SnapshotRepository",
@@ -39,4 +48,5 @@ __all__ = [
     "initialize_coa_result_repository",
     "initialize_research_database",
     "initialize_snapshot_repository",
+    "initialize_validation_repository",
 ]
