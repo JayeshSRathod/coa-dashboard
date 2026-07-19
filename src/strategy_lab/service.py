@@ -45,11 +45,16 @@ class StrategyLabService:
         parent = self.strategies.get(strategy_id)
         if parent is None:
             raise ValueError("parent strategy not found")
-        return self.create_strategy(
+        clone = self.create_strategy(
             strategy_name=strategy_name, description=parent.description, owner=parent.owner,
             category=parent.category, asset_class=parent.asset_class, market=parent.market,
             version=version, status=status, parent_strategy_id=parent.strategy_id,
         )
+        for configuration in self.configurations.list_for_strategy(parent.strategy_id):
+            self.create_configuration(clone.strategy_id, dict(configuration.values))
+        emit_snapshot_event(self.logger, "strategy_cloned", strategy_id=clone.strategy_id,
+                            parent_strategy_id=parent.strategy_id)
+        return clone
 
     def create_configuration(self, strategy_id: str, values: dict) -> Configuration:
         configuration = self.configurations.insert(Configuration.new(
