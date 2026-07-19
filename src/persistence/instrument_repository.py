@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from src.multimarket.models import Instrument
@@ -60,7 +61,7 @@ class InstrumentRepository(SQLiteRepository):
             self.connection.execute(
                 "INSERT OR IGNORE INTO symbol_mappings VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (mapping_id, instrument_id, broker_name, broker_symbol, broker_token,
-                 "1970-01-01T00:00:00+00:00", "InstrumentRegistry"),
+                 datetime.now(timezone.utc).isoformat(), "InstrumentRegistry"),
             )
         row = self.connection.execute(
             "SELECT mapping_id FROM symbol_mappings WHERE instrument_id=? AND broker_name=?",
