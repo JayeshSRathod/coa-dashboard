@@ -602,6 +602,14 @@ def _add_multi_broker_asset_store(connection: sqlite3.Connection) -> None:
     """Add append-only broker, account, routing, provider, and instrument registry records."""
     connection.executescript(
         """
+        CREATE TABLE IF NOT EXISTS brokers (
+            broker_id TEXT PRIMARY KEY,
+            broker_name TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS instruments (
             instrument_id TEXT PRIMARY KEY,
             exchange TEXT NOT NULL,
@@ -675,6 +683,8 @@ def _add_multi_broker_asset_store(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_symbol_mappings_broker_symbol
             ON symbol_mappings(broker_name, broker_symbol);
+        CREATE TRIGGER IF NOT EXISTS brokers_no_update BEFORE UPDATE ON brokers BEGIN SELECT RAISE(ABORT, 'brokers is append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS brokers_no_delete BEFORE DELETE ON brokers BEGIN SELECT RAISE(ABORT, 'brokers is append-only'); END;
         CREATE TRIGGER IF NOT EXISTS instruments_no_update BEFORE UPDATE ON instruments BEGIN SELECT RAISE(ABORT, 'instruments is append-only'); END;
         CREATE TRIGGER IF NOT EXISTS instruments_no_delete BEFORE DELETE ON instruments BEGIN SELECT RAISE(ABORT, 'instruments is append-only'); END;
         CREATE TRIGGER IF NOT EXISTS broker_accounts_no_update BEFORE UPDATE ON broker_accounts BEGIN SELECT RAISE(ABORT, 'broker_accounts is append-only'); END;
