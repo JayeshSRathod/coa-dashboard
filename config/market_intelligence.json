@@ -1,0 +1,1 @@
+{"enabled":true,"mode":"DETERMINISTIC","weights":{"trend":25,"momentum":20,"volume":15,"oi":15,"risk":10,"validation":10,"portfolio_fit":5},"machine_learning":false,"automatic_execution":false,"dynamic_optimization":false}
