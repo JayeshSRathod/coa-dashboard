@@ -51,7 +51,7 @@ class PaperExecutionTests(unittest.TestCase):
         self.assertEqual(state.quantity_remaining,5)
         self.assertEqual(state.stop_loss,100.0)
 
-        stopped=self.engine.process_snapshot(self.trade,state,snapshot("s3",99,99,105,bid=8))
+        stopped=self.engine.process_snapshot(self.trade,state,snapshot("s3",99,99,105,bid=7))
         state=project_trade(self.trade,all_events+stopped)
         self.assertEqual(state.status,"CLOSED")
         self.assertEqual(state.exit_reason,"STOP_LOSS")
