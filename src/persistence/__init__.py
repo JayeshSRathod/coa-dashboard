@@ -33,6 +33,7 @@ from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 from .market_data_repository import MarketDataRepository
 from .canonical_coa_repository import CanonicalCOARepository
+from .decision_repository import DecisionRepository
 
 
 def initialize_research_database(database_path: str) -> ResearchRepository:
@@ -202,6 +203,8 @@ def initialize_canonical_coa_repository(database_path: str) -> CanonicalCOARepos
     connection = connect(database_path)
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return CanonicalCOARepository(connection)
+def initialize_decision_repository(database_path: str) -> DecisionRepository:
+    connection = connect(database_path); apply_migrations(connection, RESEARCH_MIGRATIONS); return DecisionRepository(connection)
 
 
 __all__ = [
@@ -236,6 +239,7 @@ __all__ = [
     "SnapshotRepository",
     "MarketDataRepository",
     "CanonicalCOARepository",
+    "DecisionRepository",
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
@@ -260,6 +264,7 @@ __all__ = [
     "initialize_snapshot_repository",
     "initialize_market_data_repository",
     "initialize_canonical_coa_repository",
+    "initialize_decision_repository",
     "initialize_signal_repository",
     "initialize_execution_repository",
     "initialize_exposure_repository",

@@ -1079,6 +1079,18 @@ def _add_canonical_coa_store(connection: sqlite3.Connection) -> None:
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
 
+def _add_trade_decision_store(connection: sqlite3.Connection) -> None:
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS trade_decision (decision_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, action TEXT NOT NULL, status TEXT NOT NULL, confidence REAL NOT NULL, valid_until TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS decision_evidence (evidence_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, category TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(decision_id) REFERENCES trade_decision(decision_id));
+        CREATE TABLE IF NOT EXISTS decision_lifecycle (event_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, from_status TEXT, to_status TEXT NOT NULL, occurred_at TEXT NOT NULL, payload_json TEXT NOT NULL, FOREIGN KEY(decision_id) REFERENCES trade_decision(decision_id));
+        CREATE TABLE IF NOT EXISTS decision_rejection (rejection_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, rule_id TEXT NOT NULL, severity TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY(decision_id) REFERENCES trade_decision(decision_id));
+        CREATE TABLE IF NOT EXISTS decision_versions (version_id TEXT PRIMARY KEY, version TEXT NOT NULL UNIQUE, manifest_json TEXT NOT NULL, created_at TEXT NOT NULL);
+    """)
+    for table in ("trade_decision", "decision_evidence", "decision_lifecycle", "decision_rejection", "decision_versions"):
+        connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
+        connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -1098,4 +1110,5 @@ RESEARCH_MIGRATIONS = (
     Migration(16, "trade_journal_learning", _add_trade_journal_store),
     Migration(17, "market_data_platform", _add_market_data_platform_store),
     Migration(18, "canonical_coa_engine", _add_canonical_coa_store),
+    Migration(19, "trade_decision_engine", _add_trade_decision_store),
 )
