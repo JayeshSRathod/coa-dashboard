@@ -1063,6 +1063,22 @@ def _add_market_data_platform_store(connection: sqlite3.Connection) -> None:
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
 
+
+def _add_canonical_coa_store(connection: sqlite3.Connection) -> None:
+    """Add append-only canonical-rule, evidence and replay audit records."""
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS coa_rule_registry (rule_id TEXT NOT NULL, version TEXT NOT NULL, description TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(rule_id, version));
+        CREATE TABLE IF NOT EXISTS coa_versions (version_id TEXT PRIMARY KEY, engine_version TEXT NOT NULL, rule_manifest_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(engine_version));
+        CREATE TABLE IF NOT EXISTS coa_evidence (evidence_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, rule_id TEXT NOT NULL, rule_version TEXT NOT NULL, result TEXT NOT NULL, weight REAL NOT NULL, comment TEXT NOT NULL, occurred_at TEXT NOT NULL, payload_json TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_coa_evidence_snapshot ON coa_evidence(snapshot_id, occurred_at);
+        CREATE TABLE IF NOT EXISTS compatibility_matrix (matrix_id TEXT PRIMARY KEY, structural_direction TEXT NOT NULL, tactical_action TEXT NOT NULL, decision TEXT NOT NULL, version TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(structural_direction, tactical_action, version));
+        CREATE TABLE IF NOT EXISTS coa_replay (replay_id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, canonical_version TEXT NOT NULL, matches_legacy INTEGER NOT NULL, differences_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(snapshot_id, canonical_version));
+        CREATE TABLE IF NOT EXISTS rule_changes (change_id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, from_version TEXT, to_version TEXT NOT NULL, change_note TEXT NOT NULL, created_at TEXT NOT NULL);
+    """)
+    for table in ("coa_rule_registry", "coa_versions", "coa_evidence", "compatibility_matrix", "coa_replay", "rule_changes"):
+        connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
+        connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -1081,4 +1097,5 @@ RESEARCH_MIGRATIONS = (
     Migration(15, "market_intelligence_scanner", _add_market_intelligence_store),
     Migration(16, "trade_journal_learning", _add_trade_journal_store),
     Migration(17, "market_data_platform", _add_market_data_platform_store),
+    Migration(18, "canonical_coa_engine", _add_canonical_coa_store),
 )
