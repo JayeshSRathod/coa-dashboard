@@ -23,7 +23,8 @@ def render_configuration_page(service: ConfigurationConsoleService | None = None
     )
     with broker_tab:
         _render_provider(st, service, state, "dhan", "Dhan", ("client_id", "access_token"))
-        _render_provider(st, service, state, "fyers", "Fyers", ("client_id", "secret_key", "redirect_uri"))
+        st.caption("Fyers is data-only in CQRP. Complete FYERS daily authentication yourself, then save the short-lived access token. Never save a broker PIN or refresh token.")
+        _render_provider(st, service, state, "fyers", "Fyers", ("app_id", "secret_key", "redirect_uri", "access_token"))
     with telegram_tab:
         _render_provider(st, service, state, "telegram", "Telegram", ("bot_token", "chat_id"))
     with execution_tab:

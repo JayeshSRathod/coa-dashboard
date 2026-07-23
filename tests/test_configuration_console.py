@@ -62,6 +62,18 @@ class ConfigurationConsoleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.save_operations(scanner_interval_seconds=0, max_open_positions=2)
 
+    def test_fyers_daily_session_values_are_masked_and_not_persisted(self) -> None:
+        self.service.save_broker("fyers", enabled=True, credentials={
+            "app_id": "FYERS-APP-200", "secret_key": "fyers-secret",
+            "redirect_uri": "https://localhost/callback", "access_token": "daily-token",
+        })
+        stored = self.path.read_text(encoding="utf-8")
+        public = self.service.public_configuration()["brokers"]["fyers"]
+        self.assertNotIn("daily-token", stored)
+        self.assertNotIn("fyers-secret", stored)
+        self.assertTrue(all(public["credentials"].values()))
+        self.assertEqual(self.secrets.get("CQRP_FYERS_ACCESS_TOKEN"), "daily-token")
+
     def test_unavailable_local_keyring_is_treated_as_absent_for_reading(self) -> None:
         class UnavailableStore:
             def get(self, name):
