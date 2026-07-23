@@ -16,7 +16,9 @@ from .secrets import CompositeSecretStore, SecretStore
 ALLOWED_EXECUTION_MODES = frozenset({"DISABLED", "PAPER"})
 BROKER_FIELDS = {
     "dhan": ("client_id", "access_token"),
-    "fyers": ("client_id", "secret_key", "redirect_uri"),
+    # Fyers access is deliberately a daily data-session token. CQRP does not
+    # retain a broker PIN or use the legacy refresh-token/PIN workflow.
+    "fyers": ("app_id", "secret_key", "redirect_uri", "access_token"),
     "telegram": ("bot_token", "chat_id"),
 }
 
