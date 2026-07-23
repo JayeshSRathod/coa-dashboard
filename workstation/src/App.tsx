@@ -41,7 +41,7 @@ export default function App() {
     </aside>
     <main>
       <header className="topbar"><div><p className="eyebrow">CQRP / {workspace.label.toUpperCase()}</p><h1>{workspace.label} Workspace</h1></div><div className="topbar-actions"><button className="command-button" onClick={() => setCommandOpen(true)} type="button">⌘ <span>Command</span><kbd>Ctrl K</kbd></button><span className="live-status"><StatusDot tone="neutral" /> DATA OFFLINE</span></div></header>
-      <section className="workspace-intro"><p>{workspace.description}</p><span>Updated: no live source</span></section>
+      <section className="workspace-intro"><p>{workspace.description}</p><div className="market-meta"><span>Provider: <b>Unconfigured</b></span><span>Latency: <b>—</b></span><span>Snapshot age: <b>—</b></span><span>Quality: <b>OFFLINE</b></span></div></section>
       <section className="kpi-grid" aria-label="Workspace summary">{workspace.kpis.map((kpi) => <article className="kpi-card" key={kpi.label}><div><p>{kpi.label}</p><strong>{kpi.value}</strong></div><span className={`badge ${kpi.tone}`}><StatusDot tone={kpi.tone} /> {kpi.detail}</span></article>)}</section>
       <section className={`panel-grid ${workspace.id}`}>{workspace.panels.map((panel) => <PanelCard key={panel.id} panel={panel} />)}</section>
     </main>
