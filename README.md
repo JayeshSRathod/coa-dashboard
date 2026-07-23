@@ -1,4 +1,6 @@
-# COA Dashboard
+# COA Dashboard / CQRP
+
+CQRP is a research-first COA platform. The current documentation index is [docs/README.md](docs/README.md); it covers architecture, research governance, operations, and safe local use.
 
 ## CQRP 3.0 workstation (local preview)
 
@@ -22,7 +24,7 @@ cd COA_Dashboard
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run dashboard/app.py
 ```
 
 Opens at http://localhost:8501
