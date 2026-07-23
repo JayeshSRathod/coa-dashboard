@@ -31,6 +31,7 @@ from .promotion_repository import PromotionRepository
 from .research_notebook_repository import ResearchNotebookRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
+from .market_data_repository import MarketDataRepository
 
 
 def initialize_research_database(database_path: str) -> ResearchRepository:
@@ -190,6 +191,13 @@ def initialize_snapshot_repository(database_path: str) -> SnapshotRepository:
     return SnapshotRepository(connection)
 
 
+def initialize_market_data_repository(database_path: str) -> MarketDataRepository:
+    """Open a migrated CQRP database for normalized market-data records."""
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return MarketDataRepository(connection)
+
+
 __all__ = [
     "AnalyticsRepository",
     "StrategyRepository",
@@ -220,6 +228,7 @@ __all__ = [
     "ResearchRepository",
     "RESEARCH_MIGRATIONS",
     "SnapshotRepository",
+    "MarketDataRepository",
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
@@ -242,6 +251,7 @@ __all__ = [
     "initialize_report_repository",
     "initialize_research_database",
     "initialize_snapshot_repository",
+    "initialize_market_data_repository",
     "initialize_signal_repository",
     "initialize_execution_repository",
     "initialize_exposure_repository",

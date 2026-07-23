@@ -1007,6 +1007,62 @@ def _add_trade_journal_store(connection: sqlite3.Connection) -> None:
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
 
+
+def _add_market_data_platform_store(connection: sqlite3.Connection) -> None:
+    """Add authoritative append-only normalized market-data evidence."""
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS market_snapshot (
+            snapshot_id TEXT PRIMARY KEY,
+            instrument_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            spot REAL NOT NULL,
+            expiry TEXT NOT NULL,
+            quality_state TEXT NOT NULL,
+            latency_ms REAL,
+            payload_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_market_data_snapshot_instrument_time
+            ON market_snapshot(instrument_id, captured_at);
+        CREATE TABLE IF NOT EXISTS provider_health (
+            health_id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            availability TEXT NOT NULL,
+            latency_ms REAL,
+            error_count INTEGER NOT NULL,
+            heartbeat_at TEXT,
+            circuit_state TEXT NOT NULL,
+            details_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_health_provider_time
+            ON provider_health(provider, observed_at);
+        CREATE TABLE IF NOT EXISTS provider_events (
+            event_id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            details_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_events_provider_time
+            ON provider_events(provider, occurred_at);
+        CREATE TABLE IF NOT EXISTS source_transition (
+            transition_id TEXT PRIMARY KEY,
+            instrument_id TEXT NOT NULL,
+            from_provider TEXT,
+            to_provider TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            occurred_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_source_transition_instrument_time
+            ON source_transition(instrument_id, occurred_at);
+        """
+    )
+    for table in ("market_snapshot", "provider_health", "provider_events", "source_transition"):
+        connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
+        connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -1024,4 +1080,5 @@ RESEARCH_MIGRATIONS = (
     Migration(14, "advanced_portfolio_options_analytics", _add_portfolio_options_analytics_store),
     Migration(15, "market_intelligence_scanner", _add_market_intelligence_store),
     Migration(16, "trade_journal_learning", _add_trade_journal_store),
+    Migration(17, "market_data_platform", _add_market_data_platform_store),
 )
