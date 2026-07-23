@@ -32,6 +32,7 @@ from .research_notebook_repository import ResearchNotebookRepository
 from .schema import RESEARCH_MIGRATIONS
 from .snapshot_repository import SnapshotRepository
 from .market_data_repository import MarketDataRepository
+from .canonical_coa_repository import CanonicalCOARepository
 
 
 def initialize_research_database(database_path: str) -> ResearchRepository:
@@ -197,6 +198,11 @@ def initialize_market_data_repository(database_path: str) -> MarketDataRepositor
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return MarketDataRepository(connection)
 
+def initialize_canonical_coa_repository(database_path: str) -> CanonicalCOARepository:
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return CanonicalCOARepository(connection)
+
 
 __all__ = [
     "AnalyticsRepository",
@@ -229,6 +235,7 @@ __all__ = [
     "RESEARCH_MIGRATIONS",
     "SnapshotRepository",
     "MarketDataRepository",
+    "CanonicalCOARepository",
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
@@ -252,6 +259,7 @@ __all__ = [
     "initialize_research_database",
     "initialize_snapshot_repository",
     "initialize_market_data_repository",
+    "initialize_canonical_coa_repository",
     "initialize_signal_repository",
     "initialize_execution_repository",
     "initialize_exposure_repository",
