@@ -50,6 +50,6 @@ class DashboardApplicationService:
    cards={"instrument":snapshot.instrument_id,"spot":snapshot.spot,"expiry":snapshot.expiry or "Current expiry",
           "contracts":len(rows),"latency_ms":round(snapshot.latency_ms or 0,1),"mode":"DATA_ONLY_PAPER"}
    return DashboardView("FYERS Live Market",cards,rows,Freshness("FYERS",snapshot.captured_at,"FRESH"))
-  except Exception:
+  except Exception as exc:
    return DashboardView("FYERS Live Market",{},[],Freshness("FYERS",None,"UNAVAILABLE"),
-                        "FYERS market-data request failed. Confirm the daily access token, app ID, and FYERS API access.")
+                        f"FYERS market-data request failed: {exc}")

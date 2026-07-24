@@ -13,6 +13,10 @@ from ..mappers.fyers_mapper import map_fyers_option_chain
 from ..models import MarketQuote, OptionChainSnapshot, ProviderHealth, QualityState
 
 
+class FyersRequestError(RuntimeError):
+    """A sanitized FYERS transport error that is safe to render to a user."""
+
+
 class FyersProvider:
     name = "FYERS"
 
@@ -41,15 +45,31 @@ class FyersProvider:
 
     @staticmethod
     def _fetch_raw(app_id: str, access_token: str, symbol: str, strike_count: int) -> dict[str, Any]:
-        response = requests.put(
-            "https://api.fyers.in/v3/data/options-chain",
-            headers={"Authorization": f"{app_id}:{access_token}"},
-            json={"symbol": symbol, "strikecount": strike_count, "timestamp": ""},
-            timeout=20,
-        ).json()
-        if response.get("s") != "ok":
-            raise RuntimeError(f"Fyers option-chain request failed: {response.get('message', 'unknown error')}")
-        return response.get("data", {})
+        # FYERS V3 data endpoints expect the daily access token as a Bearer
+        # token.  The app id is needed to obtain the token, but must not be
+        # prepended to it for this REST request.
+        del app_id
+        try:
+            http_response = requests.put(
+                "https://api.fyers.in/v3/data/options-chain",
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+                json={"symbol": symbol, "strikecount": strike_count, "timestamp": ""},
+                timeout=20,
+            )
+            response = http_response.json()
+        except requests.RequestException as exc:
+            raise FyersRequestError("FYERS could not be reached. Check your internet connection and try again.") from exc
+        except ValueError as exc:
+            raise FyersRequestError("FYERS returned an invalid response. Try again shortly.") from exc
+        if not isinstance(response, dict):
+            raise FyersRequestError("FYERS returned an unexpected response.")
+        if http_response.status_code >= 400 or response.get("s") != "ok":
+            message = str(response.get("message") or f"HTTP {http_response.status_code}")
+            raise FyersRequestError(f"FYERS option-chain request failed: {message}")
+        data = response.get("data")
+        if not isinstance(data, dict):
+            raise FyersRequestError("FYERS returned no option-chain data for this instrument.")
+        return data
 
 
 def _now() -> str:
