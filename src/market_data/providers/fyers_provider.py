@@ -45,15 +45,15 @@ class FyersProvider:
 
     @staticmethod
     def _fetch_raw(app_id: str, access_token: str, symbol: str, strike_count: int) -> dict[str, Any]:
-        # FYERS V3 data endpoints expect the daily access token as a Bearer
-        # token.  The app id is needed to obtain the token, but must not be
-        # prepended to it for this REST request.
-        del app_id
+        # FYERS' current V3 SDK calls the data endpoint with a GET request,
+        # query parameters, and an ``app_id:access_token`` header value.
+        # Keeping this wire format aligned with the SDK avoids the legacy
+        # endpoint's ``Invalid Request, please provide valid method`` error.
         try:
-            http_response = requests.put(
-                "https://api.fyers.in/v3/data/options-chain",
-                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
-                json={"symbol": symbol, "strikecount": strike_count, "timestamp": ""},
+            http_response = requests.get(
+                "https://api-t1.fyers.in/data/options-chain-v3",
+                headers={"Authorization": f"{app_id}:{access_token}", "Content-Type": "application/json", "version": "3"},
+                params={"symbol": symbol, "strikecount": strike_count, "timestamp": ""},
                 timeout=20,
             )
             response = http_response.json()

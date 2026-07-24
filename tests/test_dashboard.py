@@ -46,16 +46,18 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(view.cards["spot"], 25000)
         self.assertEqual(view.cards["mode"], "DATA_ONLY_PAPER")
 
-    @patch("src.market_data.providers.fyers_provider.requests.put")
-    def test_fyers_transport_uses_bearer_daily_token(self, put):
+    @patch("src.market_data.providers.fyers_provider.requests.get")
+    def test_fyers_transport_uses_current_option_chain_endpoint(self, get):
         response = Mock(status_code=200)
         response.json.return_value = {"s": "ok", "data": {"optionsChain": []}}
-        put.return_value = response
+        get.return_value = response
 
         raw = FyersProvider._fetch_raw("APP-200", "daily-token", "NSE:NIFTY50-INDEX", 5)
 
         self.assertEqual(raw, {"optionsChain": []})
-        self.assertEqual(put.call_args.kwargs["headers"]["Authorization"], "Bearer daily-token")
+        self.assertEqual(get.call_args.args[0], "https://api-t1.fyers.in/data/options-chain-v3")
+        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "APP-200:daily-token")
+        self.assertEqual(get.call_args.kwargs["params"]["strikecount"], 5)
 
 
 if __name__ == "__main__":
