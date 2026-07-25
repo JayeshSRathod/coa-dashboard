@@ -1,5 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
+import tempfile
+from pathlib import Path
 
 from dashboard.exports import export_csv, export_json
 from dashboard.services import DashboardApplicationService
@@ -8,14 +10,18 @@ from src.configuration_console.secrets import InMemorySecretStore
 from src.market_data.contracts import OptionChainRequest
 from src.market_data.fyers_session import FYERS_SECRETS, FyersDataSessionFactory
 from src.market_data.providers.fyers_provider import FyersProvider
+from src.application.fyers_research import FyersResearchService
 
 
 class DashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.research = FyersResearchService(Path(tempfile.mkdtemp()) / "research.db")
+
     def test_views_exports_masks_and_errors(self):
         service = DashboardApplicationService({
             "home": lambda: {"cards": {"mode": "PAPER"}, "rows": [{"symbol": "NIFTY"}]},
             "market": lambda: 1 / 0,
-        })
+        }, fyers_research=self.research)
 
         self.assertEqual(service.get_home_dashboard().cards["mode"], "PAPER")
         self.assertEqual(service.get_market_dashboard().freshness.status, "UNAVAILABLE")
@@ -24,7 +30,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(mask_secret("x"), "********")
 
     def test_live_fyers_market_requires_a_daily_session_without_exposing_secrets(self):
-        unavailable = DashboardApplicationService(secret_store=InMemorySecretStore())
+        unavailable = DashboardApplicationService(secret_store=InMemorySecretStore(), fyers_research=self.research)
         view = unavailable.get_live_fyers_market(OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", ""))
         self.assertEqual(view.freshness.status, "NOT_CONFIGURED")
 
@@ -36,15 +42,17 @@ class DashboardTests(unittest.TestCase):
                     "optionsChain": [
                         {"ltp": 25000},
                         {"option_type": "CE", "strike_price": 25000, "ltp": 100, "oi": 10, "volume": 20},
+                        {"option_type": "PE", "strike_price": 25000, "ltp": 90, "oi": 12, "volume": 18},
                     ]
                 })
 
-        view = DashboardApplicationService(fyers_factory=TestFactory(secrets)).get_live_fyers_market(
+        view = DashboardApplicationService(fyers_factory=TestFactory(secrets), fyers_research=self.research).get_live_fyers_market(
             OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", "", 5)
         )
         self.assertEqual(view.freshness.source, "FYERS")
         self.assertEqual(view.cards["spot"], 25000)
         self.assertEqual(view.cards["mode"], "DATA_ONLY_PAPER")
+        self.assertIsNotNone(view.cards["research_snapshot_id"])
 
     @patch("src.market_data.providers.fyers_provider.requests.get")
     def test_fyers_transport_uses_current_option_chain_endpoint(self, get):
