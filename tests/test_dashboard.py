@@ -28,6 +28,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("symbol", export_csv([{"symbol": "NIFTY"}]))
         self.assertIn("NIFTY", export_json([{"symbol": "NIFTY"}]))
         self.assertEqual(mask_secret("x"), "********")
+        decision = service.get_decision_dashboard()
+        self.assertEqual(decision.cards["action"], "WAITING_FOR_DATA")
 
     def test_live_fyers_market_requires_a_daily_session_without_exposing_secrets(self):
         unavailable = DashboardApplicationService(secret_store=InMemorySecretStore(), fyers_research=self.research)

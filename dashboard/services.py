@@ -26,6 +26,20 @@ class DashboardApplicationService:
   except Exception:return DashboardView(name.replace("_"," ").title(),{},[],Freshness(name,None,"UNAVAILABLE"),"Data unavailable. Check the related CQRP service.")
  def get_home_dashboard(self):return self._view("home")
  def get_market_dashboard(self):return self._view("market")
+ def get_decision_dashboard(self):
+  latest=self.fyers_research.latest("NIFTY")
+  snapshot=self.fyers_research.latest_snapshot("NIFTY")
+  if latest is None or snapshot is None:return DashboardView("Decision Dashboard",{"action":"WAITING_FOR_DATA","mode":"PAPER_ONLY"},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"The local worker has not captured a FYERS snapshot yet.")
+  coa=latest.coa_result; validation=latest.validation_result; signal=latest.signal
+  risk_mode=coa.risk_mode if coa else None
+  if risk_mode == "HALT_TRADING":action,reason="NO_TRADE","COA risk mode is HALT_TRADING."
+  elif signal is None:action,reason="NO_TRADE","No research signal is available."
+  elif signal.signal_type in {"BUY","SELL"}:action,reason=f"PAPER_{signal.signal_type}_CANDIDATE","Configured scenario and validation thresholds are satisfied; PAPER tracking only."
+  elif signal.signal_type == "WATCHLIST":action,reason="WATCHLIST","Scenario is present but one or more research checks did not pass."
+  else:action,reason="NO_TRADE","No configured directional scenario applies."
+  cards={"action":action,"reason":reason,"mode":"PAPER_ONLY","instrument":snapshot.get("instrument"),"spot":snapshot.get("spot"),"scenario":coa.scenario if coa else None,"risk_mode":risk_mode,"support":coa.support if coa else None,"resistance":coa.resistance if coa else None,"eos":coa.eos if coa else None,"eor":coa.eor if coa else None,"validation_score":validation.overall_score if validation else None,"confidence":validation.confidence_band if validation else None,"signal_type":signal.signal_type if signal else None,"paper_trade_id":latest.paper_trade_id}
+  rows=[{"check":"COA scenario","result":coa.scenario if coa else "Unavailable"},{"check":"Risk gate","result":risk_mode or "Unavailable"},{"check":"Validation","result":f"{validation.overall_score:.2f} ({validation.confidence_band})" if validation else "Unavailable"},{"check":"Research signal","result":signal.signal_type if signal else "Unavailable"},{"check":"Execution","result":"PAPER ONLY — no FYERS order endpoint"}]
+  return DashboardView("Decision Dashboard",cards,rows,Freshness("FYERS",str(snapshot.get("market_captured_at")),"FRESH"),None)
  def get_latest_fyers_market(self):
   snapshot=self.fyers_research.latest_snapshot("NIFTY")
   if snapshot is None:return DashboardView("FYERS Live Market",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"The local FYERS worker has not captured a snapshot yet.")
