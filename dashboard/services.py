@@ -26,7 +26,14 @@ class DashboardApplicationService:
   except Exception:return DashboardView(name.replace("_"," ").title(),{},[],Freshness(name,None,"UNAVAILABLE"),"Data unavailable. Check the related CQRP service.")
  def get_home_dashboard(self):return self._view("home")
  def get_market_dashboard(self):return self._view("market")
- def get_scanner_dashboard(self):return self._view("scanner")
+ def get_scanner_dashboard(self):
+  latest=self.fyers_research.latest("NIFTY")
+  if latest is None:return DashboardView("Scanner",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Fetch live FYERS market data to start scanner research.")
+  if latest.signal is None:return DashboardView("Scanner",{"snapshot_id":latest.snapshot_id},[],Freshness("FYERS",None,"PROCESSING_FAILED"),latest.error or "Research signal is unavailable for this snapshot.")
+  signal=latest.signal
+  cards={"snapshot_id":latest.snapshot_id,"signal_type":signal.signal_type,"direction":signal.direction,"scenario":signal.scenario,"confidence_score":signal.confidence_score,"confidence_band":signal.confidence_band,"entry":signal.entry_price,"target_1":signal.target_1,"target_2":signal.target_2,"mode":"RESEARCH_ONLY"}
+  rows=[{"reason":reason} for reason in signal.reasons]
+  return DashboardView("Scanner",cards,rows,Freshness("FYERS",signal.created_at,"FRESH"),latest.error)
  def get_coa_dashboard(self):
   latest=self.fyers_research.latest("NIFTY")
   if latest is None:return DashboardView("Coa Research",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Fetch live FYERS market data to start COA research.")
@@ -36,11 +43,19 @@ class DashboardApplicationService:
   return DashboardView("Coa Research",cards,[],Freshness("FYERS",coa.market_timestamp,"FRESH"),latest.error)
  def get_strategy_lab_dashboard(self):return self._view("strategy_lab")
  def get_research_knowledge_dashboard(self):return self._view("research_knowledge")
- def get_portfolio_dashboard(self):return self._view("portfolio")
+ def get_portfolio_dashboard(self):
+  rows=self.fyers_research.paper_states()
+  if not rows:return DashboardView("Portfolio",{"mode":"PAPER_ONLY","open_positions":0,"realized_pnl":0.0},[],Freshness("CQRP",None,"AWAITING_SIGNAL"),"No directional research signal has created a paper trade yet.")
+  open_positions=sum(row["status"] in {"PENDING","OPEN","PARTIALLY_EXITED"} for row in rows)
+  realized=sum(float(row["realized_pnl"] or 0) for row in rows)
+  return DashboardView("Portfolio",{"mode":"PAPER_ONLY","open_positions":open_positions,"paper_trades":len(rows),"realized_pnl":round(realized,2)},rows,Freshness("CQRP",None,"FRESH"))
  def get_options_dashboard(self):return self._view("options")
- def get_trade_journal_dashboard(self):return self._view("trade_journal")
- def get_performance_dashboard(self):return self._view("performance")
- def get_execution_dashboard(self):return self._view("execution")
+ def get_trade_journal_dashboard(self):
+  view=self.get_portfolio_dashboard();return DashboardView("Trade Journal",view.cards,view.rows,view.freshness,view.error)
+ def get_performance_dashboard(self):
+  view=self.get_portfolio_dashboard();return DashboardView("Performance",view.cards,view.rows,view.freshness,view.error)
+ def get_execution_dashboard(self):
+  view=self.get_portfolio_dashboard();return DashboardView("Execution (Paper Only)",view.cards,view.rows,view.freshness,view.error)
  def get_operations_dashboard(self):return self._view("operations")
  def get_alert_dashboard(self):return self._view("alerts")
  def get_configuration_dashboard(self):return self._view("configuration")
@@ -60,7 +75,7 @@ class DashboardApplicationService:
     "volume": contract.volume, "open_interest": contract.oi, "implied_volatility": contract.iv,
    } for contract in snapshot.contracts]
    cards={"instrument":snapshot.instrument_id,"spot":snapshot.spot,"expiry":snapshot.expiry or "Current expiry",
-          "contracts":len(rows),"latency_ms":round(snapshot.latency_ms or 0,1),"research_snapshot_id":research.snapshot_id,"coa_scenario":research.coa_result.scenario if research.coa_result else None,"validation_score":research.validation_result.overall_score if research.validation_result else None,"mode":"DATA_ONLY_PAPER"}
+          "contracts":len(rows),"latency_ms":round(snapshot.latency_ms or 0,1),"research_snapshot_id":research.snapshot_id,"coa_scenario":research.coa_result.scenario if research.coa_result else None,"validation_score":research.validation_result.overall_score if research.validation_result else None,"signal_type":research.signal.signal_type if research.signal else None,"paper_trade_id":research.paper_trade_id,"mode":"DATA_ONLY_PAPER"}
    return DashboardView("FYERS Live Market",cards,rows,Freshness("FYERS",snapshot.captured_at,"FRESH"),research.error)
   except Exception as exc:
    return DashboardView("FYERS Live Market",{},[],Freshness("FYERS",None,"UNAVAILABLE"),

@@ -27,6 +27,9 @@ class FyersResearchServiceTests(unittest.TestCase):
         self.assertIsNotNone(outcome.snapshot_id)
         self.assertIsNotNone(outcome.coa_result)
         self.assertIsNotNone(outcome.validation_result)
+        self.assertIsNotNone(outcome.signal)
+        self.assertIn(outcome.signal.signal_type, {"BUY", "SELL", "WATCHLIST", "NO_SIGNAL"})
+        self.assertTrue(service.paper_states())
         self.assertEqual(service.latest("NIFTY").snapshot_id, outcome.snapshot_id)
 
 
