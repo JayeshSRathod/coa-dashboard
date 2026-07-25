@@ -101,6 +101,9 @@ class FyersResearchService:
         signal = next(iter(self.signals.get_snapshot_signal(snapshot["snapshot_id"])), None)
         return FyersResearchOutcome(snapshot["snapshot_id"], coa, validation, signal, self._paper_trade_id(signal))
 
+    def latest_snapshot(self, instrument_id: str) -> dict[str, object] | None:
+        return self.snapshots.get_latest_snapshot(instrument_id)
+
     def paper_states(self, session_id: str | None = None) -> list[dict[str, object]]:
         trades = self.trades.get_session_trades(session_id) if session_id else self._all_session_trades()
         return [{"trade_id": trade.trade_id, "instrument": trade.instrument, "direction": trade.direction,

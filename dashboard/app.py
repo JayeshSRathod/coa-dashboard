@@ -21,10 +21,16 @@ def main(service=None):
  page=st.sidebar.selectbox("CQRP Navigation",list(PAGES));
  if page=="Configuration":
   render_configuration_page();return
- if page=="Market Intelligence":
-  _render_live_fyers_market(st,service);return
- view=getattr(service,PAGES[page])()
- _render_view(st,view)
+ def render_page():
+  if page=="Market Intelligence":
+   _render_live_fyers_market(st,service);return
+  view=getattr(service,PAGES[page])()
+  _render_view(st,view)
+ if hasattr(st,"fragment"):
+  @st.fragment(run_every=60)
+  def auto_refresh_page():render_page()
+  auto_refresh_page()
+ else:render_page()
 
 def _render_view(st,view):
  st.title(view.title);st.caption(f"Source: {view.freshness.source} | Status: {view.freshness.status} | Updated: {view.freshness.updated_at}")
@@ -41,9 +47,10 @@ def _render_live_fyers_market(st,service):
  symbol=st.selectbox("Instrument",["NIFTY 50"],format_func=lambda _:"NIFTY 50 (NSE)")
  expiry=st.text_input("Expiry (optional)",placeholder="YYYY-MM-DD")
  strikes=st.slider("Strikes on each side of ATM",min_value=1,max_value=20,value=10)
+ view=None
  if st.button("Fetch live FYERS option chain",type="primary",disabled=not status.ready):
   view=service.get_live_fyers_market(OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", expiry, strikes))
-  _render_view(st,view)
  elif not status.ready:
   st.info("Add the four CQRP_FYERS_* values in Streamlit Secrets, save, and reboot the app.")
+ _render_view(st,view or service.get_latest_fyers_market())
 if __name__=="__main__":main()

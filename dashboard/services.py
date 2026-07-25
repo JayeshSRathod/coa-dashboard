@@ -26,6 +26,12 @@ class DashboardApplicationService:
   except Exception:return DashboardView(name.replace("_"," ").title(),{},[],Freshness(name,None,"UNAVAILABLE"),"Data unavailable. Check the related CQRP service.")
  def get_home_dashboard(self):return self._view("home")
  def get_market_dashboard(self):return self._view("market")
+ def get_latest_fyers_market(self):
+  snapshot=self.fyers_research.latest_snapshot("NIFTY")
+  if snapshot is None:return DashboardView("FYERS Live Market",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"The local FYERS worker has not captured a snapshot yet.")
+  rows=snapshot.get("option_chain") or []
+  cards={"instrument":snapshot.get("instrument"),"spot":snapshot.get("spot"),"expiry":snapshot.get("expiry") or "Current expiry","contracts":len(rows),"snapshot_id":snapshot.get("snapshot_id"),"mode":"DATA_ONLY_PAPER"}
+  return DashboardView("FYERS Live Market",cards,rows,Freshness(str(snapshot.get("market_source") or "FYERS"),str(snapshot.get("market_captured_at")),"FRESH"))
  def get_scanner_dashboard(self):
   latest=self.fyers_research.latest("NIFTY")
   if latest is None:return DashboardView("Scanner",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Fetch live FYERS market data to start scanner research.")
