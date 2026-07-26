@@ -19,6 +19,16 @@ class WorkerCycle:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class UniverseCycle:
+    captured_at: str
+    cycles: tuple[WorkerCycle, ...]
+
+    @property
+    def failures(self) -> int:
+        return sum(cycle.error is not None for cycle in self.cycles)
+
+
 class FyersPollingWorker:
     """Runs one explicit, read-only FYERS capture cycle at a caller-owned interval."""
 
@@ -38,6 +48,20 @@ class FyersPollingWorker:
             return WorkerCycle(snapshot.captured_at, self.research.process(snapshot))
         except Exception as exc:
             return WorkerCycle(_now(), None, f"FYERS capture failed: {type(exc).__name__}")
+
+
+class FyersUniversePollingWorker:
+    """Sequential, rate-conscious multi-index wrapper; it never submits orders."""
+
+    def __init__(self, session_factory, research, requests, market_open: Callable[[], bool] | None = None) -> None:
+        self.workers = tuple(FyersPollingWorker(session_factory, research, request, market_open) for request in requests)
+
+    def run_once(self) -> UniverseCycle:
+        cycles = tuple(worker.run_once() for worker in self.workers)
+        repository = getattr(self.workers[0].research, "snapshots", None) if self.workers else None
+        if repository is not None:
+            repository.record_event("FYERS_UNIVERSE_CYCLE", "ERROR" if any(item.error for item in cycles) else "INFO", {"instruments": len(cycles), "failures": sum(item.error is not None for item in cycles)})
+        return UniverseCycle(_now(), cycles)
 
 
 def _now() -> str:

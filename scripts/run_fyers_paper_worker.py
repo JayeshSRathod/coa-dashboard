@@ -16,7 +16,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.application.fyers_research import FyersResearchService
-from src.application.fyers_worker import FyersPollingWorker
+from src.application.fyers_worker import FyersUniversePollingWorker
+from src.common.instruments import configured_index_requests
 from src.configuration_console.secrets import CompositeSecretStore
 from src.market_data.contracts import OptionChainRequest
 from src.market_data.fyers_session import FyersDataSessionFactory
@@ -36,21 +37,20 @@ def main() -> None:
         raise ValueError("interval-seconds must be at least 1")
 
     research = FyersResearchService(_database_path())
-    worker = FyersPollingWorker(
-        FyersDataSessionFactory(CompositeSecretStore()), research,
-        OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", "", 10),
-    )
+    requests = configured_index_requests()
+    worker = FyersUniversePollingWorker(FyersDataSessionFactory(CompositeSecretStore()), research, requests)
     stop = Event()
-    print(f"CQRP local FYERS worker started: interval={args.interval_seconds:g}s, mode=PAPER_ONLY")
+    print(f"CQRP local FYERS worker started: instruments={','.join(request.instrument_id for request in requests)} | interval={args.interval_seconds:g}s | mode=PAPER_ONLY")
     try:
         while not stop.is_set():
             cycle = worker.run_once()
-            if cycle.error:
-                print(f"{cycle.captured_at} | {cycle.error}")
-            else:
-                outcome = cycle.outcome
-                signal_type = outcome.signal.signal_type if outcome and outcome.signal else "UNAVAILABLE"
-                print(f"{cycle.captured_at} | snapshot={outcome.snapshot_id if outcome else None} | signal={signal_type} | paper_trade={outcome.paper_trade_id if outcome else None}")
+            for item in cycle.cycles:
+                if item.error:
+                    print(f"{item.captured_at} | {item.error}")
+                else:
+                    outcome = item.outcome
+                    signal_type = outcome.signal.signal_type if outcome and outcome.signal else "UNAVAILABLE"
+                    print(f"{item.captured_at} | snapshot={outcome.snapshot_id if outcome else None} | signal={signal_type} | paper_trade={outcome.paper_trade_id if outcome else None}")
             if args.once:
                 return
             stop.wait(args.interval_seconds)

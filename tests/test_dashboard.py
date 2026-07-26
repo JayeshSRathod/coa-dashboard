@@ -55,6 +55,11 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(view.cards["spot"], 25000)
         self.assertEqual(view.cards["mode"], "DATA_ONLY_PAPER")
         self.assertIsNotNone(view.cards["research_snapshot_id"])
+        workstation = DashboardApplicationService(fyers_research=self.research).get_cqrpdw_dashboard()
+        self.assertEqual(workstation.title, "CQRPDW")
+        self.assertEqual(workstation.cards["mode"], "PAPER_ONLY")
+        self.assertIn("rationale", workstation.cards)
+        self.assertIn("lifecycle", workstation.cards)
 
     @patch("src.market_data.providers.fyers_provider.requests.get")
     def test_fyers_transport_uses_current_option_chain_endpoint(self, get):

@@ -6,6 +6,7 @@ resulting token yourself in Streamlit Secrets after the flow completes.
 
 from __future__ import annotations
 
+import argparse
 from getpass import getpass
 import hashlib
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -41,6 +42,10 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate a FYERS daily access token.")
+    parser.add_argument("--save-local", action="store_true",
+                        help="Save the app details and daily token to the local CQRP OS credential store.")
+    args = parser.parse_args()
     app_id = input("FYERS App ID: ").strip()
     secret_key = getpass("FYERS Secret Key (input hidden): ").strip()
     if not app_id or not secret_key:
@@ -81,6 +86,18 @@ def main() -> None:
     if not isinstance(response, dict) or not response.get("access_token"):
         message = response.get("message", "FYERS did not return an access token.") if isinstance(response, dict) else "Unexpected FYERS response."
         raise RuntimeError(message)
+
+    if args.save_local:
+        from src.configuration_console.secrets import KeyringSecretStore
+
+        store = KeyringSecretStore()
+        store.set("CQRP_FYERS_APP_ID", app_id)
+        store.set("CQRP_FYERS_SECRET_KEY", secret_key)
+        store.set("CQRP_FYERS_REDIRECT_URI", REDIRECT_URI)
+        store.set("CQRP_FYERS_ACCESS_TOKEN", response["access_token"])
+        print("\nFYERS daily session was saved securely for the local CQRP dashboard and worker.")
+        print("Do not copy, paste, commit, or share the token.")
+        return
 
     print("\nDaily FYERS access token (copy it directly into Streamlit Secrets):\n")
     print(response["access_token"])

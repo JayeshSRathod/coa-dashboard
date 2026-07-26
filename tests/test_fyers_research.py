@@ -30,6 +30,14 @@ class FyersResearchServiceTests(unittest.TestCase):
         self.assertIsNotNone(outcome.signal)
         self.assertIn(outcome.signal.signal_type, {"BUY", "SELL", "WATCHLIST", "NO_SIGNAL"})
         self.assertTrue(service.paper_states())
+        risk = service.risk_decision_for_signal(outcome.signal)
+        self.assertIsNotNone(risk)
+        self.assertIn(risk.decision, {"APPROVED", "REDUCED_SIZE"})
+        trade_id = str(service.paper_states()[0]["trade_id"])
+        detail = service.paper_trade_detail(trade_id)
+        self.assertEqual(detail["trade_id"], trade_id)
+        self.assertIn("TRADE_CREATED", [event["event"] for event in detail["events"]])
+        self.assertEqual(service.current_paper_trade()["trade_id"], trade_id)
         self.assertEqual(service.latest("NIFTY").snapshot_id, outcome.snapshot_id)
 
 

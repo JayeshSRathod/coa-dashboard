@@ -17,6 +17,7 @@ $tokenHelper = Join-Path $projectRoot "generate_fyers_token.py"
 if (-not (Test-Path -LiteralPath $pythonExe)) {
     throw "CQRP Python environment was not found: $pythonExe"
 }
+Set-Location -LiteralPath $projectRoot
 
 Clear-Host
 Write-Host "CQRP Local FYERS + PAPER Launcher" -ForegroundColor Cyan
@@ -28,10 +29,10 @@ $choice = Read-Host "Choose 1 or 2"
 
 if ($choice -eq "1") {
     Write-Host ""
-    Write-Host "Complete FYERS login and 2FA. Keep this window open until the token is shown." -ForegroundColor Cyan
-    & $pythonExe $tokenHelper
+    Write-Host "Complete FYERS login and 2FA. CQRP will securely save the daily token when FYERS returns it." -ForegroundColor Cyan
+    & $pythonExe $tokenHelper --save-local
     Write-Host ""
-    Write-Host "Copy the token shown above. Do not paste it into this launcher." -ForegroundColor Yellow
+    Write-Host "The daily token is now saved securely. It will not be displayed or pasted." -ForegroundColor Green
 } elseif ($choice -ne "2") {
     throw "Choose either 1 or 2."
 }
@@ -43,8 +44,8 @@ Start-Sleep -Seconds 5
 Start-Process "http://localhost:8501"
 
 Write-Host ""
-Write-Host "In the dashboard: open Configuration > Fyers, paste today's token, and click Save Fyers." -ForegroundColor Yellow
-Read-Host "Press Enter here only after the token has been saved locally"
+Write-Host "The local dashboard is ready and already has today's saved FYERS session." -ForegroundColor Green
+Read-Host "Press Enter to start the 60-second FYERS PAPER worker"
 
 Write-Host "Starting the 60-second FYERS PAPER worker..." -ForegroundColor Cyan
 $workerCommand = "& '$pythonExe' '$worker' --interval-seconds 60"
