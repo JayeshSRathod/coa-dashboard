@@ -1201,6 +1201,20 @@ def _add_dynamic_structure_store(connection: sqlite3.Connection) -> None:
             END;
     """)
 
+
+def _add_dynamic_contract_context(connection: sqlite3.Connection) -> None:
+    """Expose the expiry/contract context of immutable dynamic-wall evidence."""
+    connection.execute("ALTER TABLE dynamic_option_walls ADD COLUMN expiry TEXT")
+    connection.execute("ALTER TABLE dynamic_structure_events ADD COLUMN expiry TEXT")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dynamic_walls_contract_time "
+        "ON dynamic_option_walls(instrument, expiry, strike, captured_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dynamic_events_contract_time "
+        "ON dynamic_structure_events(instrument, expiry, event_type, occurred_at)"
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -1223,4 +1237,5 @@ RESEARCH_MIGRATIONS = (
     Migration(19, "trade_decision_engine", _add_trade_decision_store),
     Migration(20, "manual_observation_notes", _add_manual_observation_store),
     Migration(21, "dynamic_coa_structure_events", _add_dynamic_structure_store),
+    Migration(22, "dynamic_contract_context", _add_dynamic_contract_context),
 )

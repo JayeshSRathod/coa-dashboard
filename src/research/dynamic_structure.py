@@ -75,10 +75,16 @@ class DynamicStructureEngine:
                 output.append({
                     "snapshot_id": snapshot["snapshot_id"], "session_id": snapshot["session_id"],
                     "instrument": snapshot["instrument"], "captured_at": snapshot["market_captured_at"],
+                    "expiry": self._contract_expiry(row, snapshot),
                     "side": side, "metric": metric, "rank": rank,
                     "strike": self._number(row.get("Strike")),
                     "metric_value": self._number(row.get(key)) or 0.0,
-                    "payload": {"engine_version": self.version, "option_chain_row": dict(row)},
+                    "payload": {
+                        "engine_version": self.version,
+                        "contract": self._contract_label(snapshot["instrument"], self._number(row.get("Strike")), side,
+                                                         self._contract_expiry(row, snapshot)),
+                        "option_chain_row": dict(row),
+                    },
                 })
         return output
 
@@ -93,6 +99,8 @@ class DynamicStructureEngine:
             "put_oi_total": self._total_oi(snapshot, "Put_OI"),
             "levels": {name: getattr(context.get("coa_result"), name.lower(), None)
                        for name in ("SUPPORT", "RESISTANCE", "EOS", "EOR")},
+            "level_distances": self._level_distances(float(snapshot["spot"]), context.get("coa_result")),
+            "expiry": snapshot.get("expiry"),
         })]
         now = self._time(snapshot["market_captured_at"])
         previous_by_key = {(row["side"], row["metric"], row["rank"]): row for row in previous_walls}
@@ -116,6 +124,9 @@ class DynamicStructureEngine:
                     "side": current["side"], "metric": current["metric"], "rank": current["rank"],
                     "from_strike": previous["strike"], "to_strike": current["strike"],
                     "from_value": previous["metric_value"], "to_value": current["metric_value"],
+                    "from_expiry": previous.get("expiry"), "to_expiry": current.get("expiry"),
+                    "from_contract": previous.get("payload", {}).get("contract"),
+                    "to_contract": current.get("payload", {}).get("contract"),
                 }))
         for side in ("CE", "PE"):
             current_volume = current_by_key.get((side, "VOLUME", 1))
@@ -128,16 +139,26 @@ class DynamicStructureEngine:
                 events.append(self._event(snapshot, context, "VOLUME_BURST", side, {
                     "side": side, "strike": current_volume["strike"], "volume_delta": volume_delta,
                     "current_volume": current_volume["metric_value"],
+                    "expiry": current_volume.get("expiry"),
+                    "contract": current_volume.get("payload", {}).get("contract"),
                 }))
             prior_volume_burst = self._last(history, "VOLUME_BURST", side)
             if oi_delta is not None and oi_delta >= self.config.oi_confirmation_minimum:
-                event_type = "OI_CONFIRMATION" if prior_volume_burst else "OI_BUILD"
+                volume_payload = dict(prior_volume_burst.get("payload", {})) if prior_volume_burst else {}
+                same_contract_burst = bool(prior_volume_burst and volume_payload.get("strike") == current_oi["strike"])
+                event_type = "OI_CONFIRMATION" if same_contract_burst else "OI_BUILD"
                 events.append(self._event(snapshot, context, event_type, side, {
                     "side": side, "strike": current_oi["strike"], "oi_delta": oi_delta,
                     "current_oi": current_oi["metric_value"],
-                    "sequence": "VOLUME_FIRST_OI_LATER" if prior_volume_burst else "OI_WITHOUT_RECORDED_VOLUME_BURST",
+                    "expiry": current_oi.get("expiry"),
+                    "contract": current_oi.get("payload", {}).get("contract"),
+                    "volume_trigger_event_id": prior_volume_burst.get("event_id") if prior_volume_burst else None,
+                    "volume_trigger_strike": volume_payload.get("strike"),
+                    "volume_trigger_expiry": volume_payload.get("expiry"),
+                    "sequence": "VOLUME_FIRST_OI_LATER_SAME_CONTRACT" if same_contract_burst else "OI_WITHOUT_SAME_CONTRACT_VOLUME_BURST",
                 }))
         events.extend(self._level_events(snapshot, context, history, previous_walls, walls))
+        events.extend(self._five_minute_outcomes(snapshot, context, history, walls))
         last_break = self._last(history, "RESISTANCE_BREAK", "RESISTANCE")
         previous_snapshot = self._last_snapshot_payload(history)
         current_signal_events = {event["event_type"] for event in events}
@@ -212,6 +233,42 @@ class DynamicStructureEngine:
                 output.append(self._event(snapshot, context, "CONTINUATION_REENTRY", "RESISTANCE", {"spot": spot, "resistance": resistance}))
         return output
 
+    def _five_minute_outcomes(self, snapshot: dict[str, Any], context: dict[str, Any],
+                              history: list[dict[str, Any]], walls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Record one measured follow-up for each structural trigger after five minutes."""
+        now = self._time(snapshot["market_captured_at"])
+        tolerance = max(self.config.minimum_level_tolerance, self._strike_step(walls) * self.config.level_tolerance_ratio)
+        source_types = {"RESISTANCE_BREAK", "FALSE_BREAKOUT", "EOS_REJECTION", "EOS_BREAK", "PULLBACK_RETEST", "CONTINUATION_REENTRY"}
+        completed = {str(item["event_key"]) for item in history if item["event_type"] == "FIVE_MINUTE_OUTCOME"}
+        outcomes: list[dict[str, Any]] = []
+        for source in history:
+            if source["event_type"] not in source_types or str(source["event_id"]) in completed:
+                continue
+            elapsed = (now - self._time(str(source["occurred_at"]))).total_seconds()
+            if elapsed < self.config.five_minute_seconds:
+                continue
+            payload = dict(source.get("payload", {}))
+            level = self._number(payload.get("resistance") or payload.get("eos") or payload.get("level"))
+            before_spot = self._number(payload.get("spot"))
+            after_spot = float(snapshot["spot"])
+            successful = self._five_minute_success(str(source["event_type"]), after_spot, level, tolerance)
+            outcomes.append(self._event(snapshot, context, "FIVE_MINUTE_OUTCOME", str(source["event_id"]), {
+                "source_event_id": source["event_id"], "source_event_type": source["event_type"],
+                "source_event_at": source["occurred_at"], "before_spot": before_spot,
+                "after_spot": after_spot, "level": level, "tolerance": tolerance,
+                "elapsed_seconds": round(elapsed, 3), "result": "CONFIRMED" if successful else "FAILED",
+                "expiry": snapshot.get("expiry"),
+            }))
+        return outcomes
+
+    @staticmethod
+    def _five_minute_success(event_type: str, spot: float, level: float | None, tolerance: float) -> bool:
+        if level is None:
+            return False
+        if event_type in {"RESISTANCE_BREAK", "EOS_REJECTION", "PULLBACK_RETEST", "CONTINUATION_REENTRY"}:
+            return spot > level + tolerance
+        return spot < level - tolerance
+
     def _context(self, snapshot: dict[str, Any], history: list[dict[str, Any]],
                  coa_result: Any | None, validation_result: Any | None,
                  signal: Any | None, risk_decision: Any | None, paper_trade_id: str | None) -> dict[str, Any]:
@@ -236,7 +293,7 @@ class DynamicStructureEngine:
     def _event(self, snapshot: dict[str, Any], context: dict[str, Any], event_type: str,
                event_key: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"snapshot_id": snapshot["snapshot_id"], "session_id": snapshot["session_id"],
-                "instrument": snapshot["instrument"], "occurred_at": snapshot["market_captured_at"],
+                "instrument": snapshot["instrument"], "expiry": snapshot.get("expiry"), "occurred_at": snapshot["market_captured_at"],
                 "event_type": event_type, "event_key": event_key, "scenario_track": context["track"],
                 "coa1_scenario_number": context["coa1"], "coa2_scenario_number": context["coa2"],
                 "coa_result_id": context["coa_result_id"], "validation_id": context["validation_id"],
@@ -265,6 +322,22 @@ class DynamicStructureEngine:
 
     def _total_oi(self, snapshot: dict[str, Any], key: str) -> float:
         return round(sum(self._number(row.get(key)) or 0.0 for row in snapshot.get("option_chain") or []), 6)
+
+    @staticmethod
+    def _contract_expiry(row: dict[str, Any], snapshot: dict[str, Any]) -> str | None:
+        return next((str(row[key]) for key in ("Expiry", "expiry", "expiry_date", "ExpiryDate") if row.get(key)), snapshot.get("expiry"))
+
+    @staticmethod
+    def _contract_label(instrument: str, strike: float | None, side: str, expiry: str | None) -> str:
+        strike_label = str(int(strike)) if strike is not None and strike.is_integer() else str(strike or "UNKNOWN")
+        return f"{instrument} {strike_label} {side} expiry {expiry or 'UNKNOWN'}"
+
+    @staticmethod
+    def _level_distances(spot: float, coa_result: Any | None) -> dict[str, float | None]:
+        return {
+            name: None if getattr(coa_result, name.lower(), None) is None else round(spot - float(getattr(coa_result, name.lower())), 6)
+            for name in ("SUPPORT", "RESISTANCE", "EOS", "EOR")
+        }
 
     @staticmethod
     def _same_strike_delta(current: dict[str, Any] | None, previous: dict[str, Any] | None) -> float | None:

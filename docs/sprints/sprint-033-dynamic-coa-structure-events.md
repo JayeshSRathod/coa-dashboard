@@ -9,11 +9,17 @@ paper-research decisions evolve over time.
 ## Recorded evidence
 
 - Top CE/PE walls by volume and OI at each captured strike.
+- Contract-level expiry context for every wall and trigger, e.g. `NIFTY 24000
+  CE expiry 2026-07-28`; a feed-level expiry is used when a contract row does
+  not expose a separate expiry.
 - Wall migration, volume burst, OI build and volume-first/OI-later confirmation.
 - Support/resistance/EOS/EOR interactions, resistance breaks, false breaks,
   EOS rejection/break, five-minute confirmation, pullback/retest and
   continuation re-entry evidence.
 - Feed degradation and capture gaps.
+- Spot distance from Support, Resistance, EOS and EOR at every structure
+  snapshot, plus one immutable five-minute `CONFIRMED` or `FAILED` outcome for
+  each breakout, rejection, retest or continuation/re-entry event.
 - Linked COA scenario track, validation result, research signal, risk decision,
   paper candidate/trade and outcome state where they exist.
 
@@ -37,5 +43,7 @@ All market-facing Dashboard 2.0 pages use one shared instrument selector
 (`NIFTY`, `BANKNIFTY`, or `FINNIFTY`). COA Research adds session and event-type
 filters, while **Strike Activity** exposes the top CE/PE Volume and OI wall
 records with their actual strike, side, rank, metric value, timestamp and
-snapshot ID. Every tabular read model provides CSV and JSON export. This is a
+snapshot ID. COA Research and Strike Activity export the complete selected
+session (up to the guarded 25,000-record limit), not merely the latest 50
+events. Every tabular read model provides CSV and JSON export. This is a
 read-only presentation change; it does not create a signal or place an order.

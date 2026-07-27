@@ -38,7 +38,7 @@ class DynamicStructureTests(unittest.TestCase):
         record = CapturedSnapshot.new(
             snapshot_id=snapshot_id, session_id="NIFTY:2026-07-27", instrument="NIFTY",
             spot=spot, source="TEST", market_captured_at=timestamp, ingested_at=timestamp,
-            option_chain=chain,
+            expiry="2026-07-28", option_chain=chain,
         )
         self.snapshots.append(record, SnapshotValidationResult(True, True, 1.0))
         return self.snapshots.get(snapshot_id)
@@ -62,6 +62,7 @@ class DynamicStructureTests(unittest.TestCase):
         self.assertIn("FIVE_MINUTE_CONFIRMATION", types)
         self.assertIn("DATA_GAP", types)
         self.assertIn("MOMENTUM_STALL", types)
+        self.assertIn("FIVE_MINUTE_OUTCOME", types)
         self.assertEqual(len(self.events.latest_walls("NIFTY", "NIFTY:2026-07-27")), 12)
         self.assertTrue(all(item["scenario_track"] == "COA1_PLUS_COA2" for item in events))
         self.assertTrue(all(10 <= item["coa2_scenario_number"] <= 18 for item in events))
@@ -74,6 +75,12 @@ class DynamicStructureTests(unittest.TestCase):
         walls = self.events.list_walls("NIFTY", session_id="NIFTY:2026-07-27")
         self.assertTrue(walls)
         self.assertTrue(all(item["strike"] is not None for item in walls))
+        self.assertTrue(all(item["expiry"] == "2026-07-28" for item in walls))
+        outcomes = [item for item in events if item["event_type"] == "FIVE_MINUTE_OUTCOME"]
+        self.assertTrue(all(item["payload"]["source_event_id"] for item in outcomes))
+        self.assertTrue(all(item["payload"]["result"] in {"CONFIRMED", "FAILED"} for item in outcomes))
+        snapshots = [item for item in events if item["event_type"] == "STRUCTURE_SNAPSHOT"]
+        self.assertIn("RESISTANCE", snapshots[-1]["payload"]["level_distances"])
 
     def test_structure_records_are_append_only(self):
         snapshot = self._snapshot("S1", "2026-07-27T09:00:00+05:30", 99.0, 100.0, 100.0)
