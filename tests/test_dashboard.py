@@ -61,6 +61,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("rationale", workstation.cards)
         self.assertIn("lifecycle", workstation.cards)
 
+        operational = DashboardApplicationService(fyers_research=self.research)
+        self.assertEqual(operational.get_options_dashboard().title, "Options Analytics")
+        self.assertEqual(operational.get_execution_dashboard().cards["mode"], "PAPER_ONLY")
+        self.assertEqual(operational.get_operations_dashboard().title, "Operations Center")
+        self.assertEqual(operational.get_alert_dashboard().cards["mode"], "OBSERVATION_ONLY")
+
     @patch("src.market_data.providers.fyers_provider.requests.get")
     def test_fyers_transport_uses_current_option_chain_endpoint(self, get):
         response = Mock(status_code=200)

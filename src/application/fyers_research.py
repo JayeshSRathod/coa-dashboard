@@ -20,10 +20,12 @@ from src.persistence.trade_repository import TradeRepository
 from src.persistence.validation_repository import ValidationRepository
 from src.persistence.portfolio_repository import PortfolioRepository
 from src.persistence.risk_decision_repository import RiskDecisionRepository
+from src.persistence.structure_event_repository import StructureEventRepository
 from src.research.coa_pipeline import COAResearchPipeline
 from src.research.collector import SnapshotCaptureService
 from src.research.validation_pipeline import ValidationResearchPipeline
 from src.research.signal_pipeline import SignalResearchPipeline
+from src.research.dynamic_structure import DynamicStructureEngine
 from src.signal.engine import SignalEngine
 from src.signal.models import ResearchSignal
 from src.execution.engine import PaperExecutionEngine
@@ -61,6 +63,7 @@ class FyersResearchService:
         self.trade_events = TradeEventRepository(self.connection)
         self.portfolios = PortfolioRepository(self.connection)
         self.risk_decisions = RiskDecisionRepository(self.connection)
+        self.structure_events = StructureEventRepository(self.connection)
         self.capture = SnapshotCaptureService(self.snapshots)
         self.coa = COAResearchPipeline(self.snapshots, self.coa_results, FrozenCOAAdapter())
         self.validation = ValidationResearchPipeline(
@@ -78,6 +81,11 @@ class FyersResearchService:
             float(os.getenv("CQRP_PAPER_CAPITAL", "100000")),
         ))
         self.risk_engine = PortfolioRiskEngine()
+        self.dynamic_structure = DynamicStructureEngine(self.structure_events)
+
+    def close(self) -> None:
+        """Close this service's SQLite connection after a dashboard render."""
+        self.connection.close()
 
     def process(self, snapshot: OptionChainSnapshot) -> FyersResearchOutcome:
         """Persist one valid observation and produce deterministic research evidence.
@@ -99,6 +107,7 @@ class FyersResearchService:
             if not signal.success:
                 return FyersResearchOutcome(captured.snapshot_id, coa.result, validation.result, None, None, signal.error or "signal generation failed")
             paper_trade_id = self._process_paper_signal(signal.signal, captured.snapshot_id)
+            self._record_dynamic_structure(captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id)
             return FyersResearchOutcome(captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id)
         except Exception as exc:
             return FyersResearchOutcome(None, None, None, None, None, f"research processing failed: {type(exc).__name__}")
@@ -128,6 +137,52 @@ class FyersResearchService:
 
     def worker_events(self, limit: int = 10) -> list[dict[str, object]]:
         return list(reversed(self.snapshots.list_events("FYERS_UNIVERSE_CYCLE")[-limit:]))
+
+    def system_events(self, limit: int = 50) -> list[dict[str, object]]:
+        """Expose persisted operational evidence without dashboard SQL access."""
+        return list(reversed(self.snapshots.list_events()[-limit:]))
+
+    def market_health(self) -> list[dict[str, object]]:
+        """Return the latest persisted provider-health observations."""
+        return self.market_data.latest_health()
+
+    def dynamic_events(self, instrument_id: str, limit: int = 200) -> list[dict[str, object]]:
+        """Read-only dynamic CE/PE wall and level-event history for research UI."""
+        return self.structure_events.list_events(instrument_id, limit=limit)
+
+    def backfill_dynamic_structure(self, instrument_id: str) -> int:
+        """Replay existing captured research evidence without changing any decision.
+
+        Duplicate protection in the append-only repository makes this safe to
+        rerun after an interrupted replay.
+        """
+        processed = 0
+        for snapshot in self.snapshots.list_by_instrument(instrument_id):
+            coa = next(iter(self.coa_results.list_by_snapshot(snapshot["snapshot_id"])), None)
+            if coa is None:
+                continue
+            validation = next(iter(self.validations.list_by_coa_result(coa.coa_result_id)), None)
+            signal = next(iter(self.signals.get_snapshot_signal(snapshot["snapshot_id"])), None)
+            self._record_dynamic_structure(
+                snapshot["snapshot_id"], coa, validation, signal, self._paper_trade_id(signal)
+            )
+            processed += 1
+        return processed
+
+    def _record_dynamic_structure(self, snapshot_id: str, coa_result: COAResearchResult,
+                                  validation_result: ValidationResult, signal: ResearchSignal | None,
+                                  paper_trade_id: str | None) -> None:
+        snapshot = self.snapshots.get(snapshot_id)
+        if snapshot is None:
+            return
+        risk = self.risk_decision_for_signal(signal)
+        try:
+            self.dynamic_structure.process(snapshot, coa_result=coa_result,
+                                           validation_result=validation_result, signal=signal,
+                                           risk_decision=risk, paper_trade_id=paper_trade_id)
+        except Exception as exc:
+            self.snapshots.record_event("dynamic_structure_processing_failed", "ERROR",
+                                        {"snapshot_id": snapshot_id, "error": str(exc)}, snapshot.get("instrument"))
 
     def paper_states(self, session_id: str | None = None) -> list[dict[str, object]]:
         trades = self.trades.get_session_trades(session_id) if session_id else self._all_session_trades()

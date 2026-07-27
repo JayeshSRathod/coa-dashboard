@@ -53,7 +53,7 @@ def render_configuration_page(service: ConfigurationConsoleService | None = None
     with history_tab:
         history = list(reversed(state["history"]))
         if history:
-            st.dataframe(history, use_container_width=True)
+            st.dataframe(history, width="stretch")
         else:
             st.info("No local configuration changes have been recorded yet.")
     with test_tab:

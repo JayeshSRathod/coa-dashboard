@@ -39,6 +39,8 @@ class FyersResearchServiceTests(unittest.TestCase):
         self.assertIn("TRADE_CREATED", [event["event"] for event in detail["events"]])
         self.assertEqual(service.current_paper_trade()["trade_id"], trade_id)
         self.assertEqual(service.latest("NIFTY").snapshot_id, outcome.snapshot_id)
+        self.assertEqual(service.backfill_dynamic_structure("NIFTY"), 1)
+        self.assertTrue(service.dynamic_events("NIFTY"))
 
 
 if __name__ == "__main__":
