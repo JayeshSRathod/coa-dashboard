@@ -146,9 +146,21 @@ class FyersResearchService:
         """Return the latest persisted provider-health observations."""
         return self.market_data.latest_health()
 
-    def dynamic_events(self, instrument_id: str, limit: int = 200) -> list[dict[str, object]]:
+    def dynamic_events(self, instrument_id: str, *, session_id: str | None = None,
+                       event_types: tuple[str, ...] = (), limit: int = 10_000) -> list[dict[str, object]]:
         """Read-only dynamic CE/PE wall and level-event history for research UI."""
-        return self.structure_events.list_events(instrument_id, limit=limit)
+        return self.structure_events.list_events(instrument_id, session_id=session_id,
+                                                 event_types=event_types, limit=limit)
+
+    def dynamic_walls(self, instrument_id: str, *, session_id: str | None = None,
+                      limit: int = 25_000) -> list[dict[str, object]]:
+        return self.structure_events.list_walls(instrument_id, session_id=session_id, limit=limit)
+
+    def dynamic_sessions(self, instrument_id: str) -> list[str]:
+        return self.structure_events.list_sessions(instrument_id)
+
+    def dynamic_event_types(self, instrument_id: str, session_id: str | None = None) -> list[str]:
+        return self.structure_events.list_event_types(instrument_id, session_id)
 
     def backfill_dynamic_structure(self, instrument_id: str) -> int:
         """Replay existing captured research evidence without changing any decision.
@@ -221,9 +233,11 @@ class FyersResearchService:
             ],
         }
 
-    def current_paper_trade(self) -> dict[str, object] | None:
+    def current_paper_trade(self, *, instrument: str | None = None) -> dict[str, object] | None:
         """Prefer an active trade; otherwise return the latest retained paper trade."""
         states = self.paper_states()
+        if instrument:
+            states = [row for row in states if row.get("instrument") == instrument]
         active = [row for row in states if row["status"] in {"PENDING", "OPEN", "PARTIALLY_EXITED"}]
         candidates = active or states
         if not candidates:

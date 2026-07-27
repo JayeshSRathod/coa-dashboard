@@ -65,6 +65,15 @@ class DynamicStructureTests(unittest.TestCase):
         self.assertEqual(len(self.events.latest_walls("NIFTY", "NIFTY:2026-07-27")), 12)
         self.assertTrue(all(item["scenario_track"] == "COA1_PLUS_COA2" for item in events))
         self.assertTrue(all(10 <= item["coa2_scenario_number"] <= 18 for item in events))
+        self.assertEqual(self.events.list_sessions("NIFTY"), ["NIFTY:2026-07-27"])
+        bursts = self.events.list_events(
+            "NIFTY", session_id="NIFTY:2026-07-27", event_types=("VOLUME_BURST",)
+        )
+        self.assertTrue(bursts)
+        self.assertTrue(all(item["event_type"] == "VOLUME_BURST" for item in bursts))
+        walls = self.events.list_walls("NIFTY", session_id="NIFTY:2026-07-27")
+        self.assertTrue(walls)
+        self.assertTrue(all(item["strike"] is not None for item in walls))
 
     def test_structure_records_are_append_only(self):
         snapshot = self._snapshot("S1", "2026-07-27T09:00:00+05:30", 99.0, 100.0, 100.0)

@@ -80,17 +80,49 @@ class StructureEventRepository(SQLiteRepository):
         return [self._decode_wall(row) for row in rows]
 
     def list_events(self, instrument: str, *, session_id: str | None = None,
-                    limit: int = 200) -> list[dict[str, Any]]:
+                    event_types: tuple[str, ...] = (), limit: int = 10_000) -> list[dict[str, Any]]:
         query = "SELECT * FROM dynamic_structure_events WHERE instrument=?"
         values: list[Any] = [instrument]
         if session_id:
             query += " AND session_id=?"
             values.append(session_id)
+        if event_types:
+            query += " AND event_type IN (" + ",".join("?" for _ in event_types) + ")"
+            values.extend(event_types)
         rows = self.connection.execute(
             query + " ORDER BY occurred_at DESC, event_id DESC LIMIT ?",
-            [*values, max(1, min(int(limit), 1000))],
+            [*values, max(1, min(int(limit), 25_000))],
         ).fetchall()
         return [self._decode_event(row) for row in rows]
+
+    def list_walls(self, instrument: str, *, session_id: str | None = None,
+                   limit: int = 25_000) -> list[dict[str, Any]]:
+        query = "SELECT * FROM dynamic_option_walls WHERE instrument=?"
+        values: list[Any] = [instrument]
+        if session_id:
+            query += " AND session_id=?"
+            values.append(session_id)
+        rows = self.connection.execute(
+            query + " ORDER BY captured_at ASC, side ASC, metric ASC, rank ASC LIMIT ?",
+            [*values, max(1, min(int(limit), 50_000))],
+        ).fetchall()
+        return [self._decode_wall(row) for row in rows]
+
+    def list_sessions(self, instrument: str) -> list[str]:
+        rows = self.connection.execute(
+            "SELECT DISTINCT session_id FROM dynamic_structure_events WHERE instrument=? ORDER BY session_id DESC",
+            (instrument,),
+        ).fetchall()
+        return [str(row["session_id"]) for row in rows]
+
+    def list_event_types(self, instrument: str, session_id: str | None = None) -> list[str]:
+        query = "SELECT DISTINCT event_type FROM dynamic_structure_events WHERE instrument=?"
+        values: list[Any] = [instrument]
+        if session_id:
+            query += " AND session_id=?"
+            values.append(session_id)
+        rows = self.connection.execute(query + " ORDER BY event_type", values).fetchall()
+        return [str(row["event_type"]) for row in rows]
 
     @staticmethod
     def _decode_wall(row: sqlite3.Row) -> dict[str, Any]:
