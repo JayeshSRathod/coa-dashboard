@@ -11,12 +11,17 @@ def analyze_option_chain(chain: list[dict], spot: float) -> dict:
     puts = [row for row in chain if row["option_type"].upper() == "PUT"]
     call_oi, put_oi = sum(float(row.get("oi", 0)) for row in calls), sum(float(row.get("oi", 0)) for row in puts)
     atm = min(chain, key=lambda row: abs(float(row["strike"]) - spot))["strike"] if chain else None
+    spreads = [
+        float(row["ask"]) - float(row["bid"])
+        for row in chain if _number(row.get("bid")) is not None and _number(row.get("ask")) is not None
+    ]
     return {
         "atm": atm, "pcr": (put_oi / call_oi) if call_oi else None,
         "call_oi": call_oi, "put_oi": put_oi,
         "highest_call_oi": max(calls, key=lambda row: (float(row.get("oi", 0)), -float(row["strike"])), default=None),
         "highest_put_oi": max(puts, key=lambda row: (float(row.get("oi", 0)), -float(row["strike"])), default=None),
-        "average_spread": fmean([float(row.get("ask", 0)) - float(row.get("bid", 0)) for row in chain]) if chain else 0.0,
+        "average_spread": fmean(spreads) if spreads else None,
+        "quote_coverage": len(spreads) / len(chain) if chain else 0.0,
     }
 
 
@@ -25,6 +30,13 @@ def classify_oi_change(*, price_change: float, oi_change: float) -> str:
     if price_change < 0 and oi_change >= 0: return "SHORT_BUILDUP"
     if price_change < 0 and oi_change < 0: return "LONG_UNWINDING"
     return "SHORT_COVERING"
+
+
+def _number(value) -> float | None:
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def iv_statistics(current_iv: float, history: list[float]) -> dict:

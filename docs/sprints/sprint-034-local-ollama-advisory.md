@@ -8,8 +8,9 @@ Connect CQRP's existing evidence-only Copilot to an optional Ollama server on
 ## Modes
 
 - `OFFLINE_EVIDENCE_ONLY` remains the default deterministic Copilot mode.
-- `LOCAL_OLLAMA_ADVISORY` is activated only when an operator opens the Local
-  Research Assistant and explicitly generates a report.
+- `LOCAL_OLLAMA_ADVISORY` is disabled by default. It can be enabled only in
+  **Configuration → Local AI**, then activated by manually generating a report.
+  When disabled, CQRP does not probe, contact, or load Ollama.
 
 ## Evidence contract
 
@@ -32,3 +33,4 @@ parameter change; it may only propose a paper-research experiment.
 
 - `mistral:latest` for daily session reports.
 - `gemma4:latest` for slower, multi-session reviews.
+- `qwen3:0.6b` for short, lower-resource summaries.

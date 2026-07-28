@@ -18,6 +18,7 @@ from src.market_data.contracts import OptionChainRequest
 from src.market_data.fyers_session import FyersDataSessionFactory
 from src.research.manual_observations import ManualObservationService
 from src.persistence.manual_observation_repository import ManualObservationRepository
+from .option_ladder import build_option_ladder
 
 from .view_models import DashboardView,Freshness
 def _fresh(source="local"):return Freshness(source,datetime.now(timezone.utc).isoformat(),"FRESH")
@@ -91,7 +92,7 @@ class DashboardApplicationService:
    risk={"decision":stored_risk.decision,"requested_quantity":stored_risk.requested_quantity,"approved_quantity":stored_risk.approved_quantity,"capital_required":stored_risk.capital_required,"capital_available":stored_risk.capital_available,"reason":stored_risk.rejection_reason,"metrics":dict(stored_risk.risk_metrics)}
   chain=[]
   for row in snapshot.get("option_chain") or []:
-   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_LTP",0),"ask":row.get("Call_LTP",0)},{"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_LTP",0),"ask":row.get("Put_LTP",0)}))
+   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_Bid"),"ask":row.get("Call_Ask")},{"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_Bid"),"ask":row.get("Put_Ask")}))
   options=analyze_option_chain(chain,float(snapshot.get("spot") or 0)) if chain else {}
   quality=float(validation.overall_score if validation else 0)
   candidate=OpportunityScanner().rank([{"instrument_id":snapshot.get("instrument","NIFTY"),"price":snapshot.get("spot",0),"coa":quality,"trend_score":100 if signal and signal.direction=="BUY" else 0,"momentum":quality,"liquidity":quality,"volume":quality,"relative_strength":quality,"risk":100 if risk and risk["decision"]!="REJECTED" else 0,"volatility":50,"quality":quality,"tradable":signal is not None}])
@@ -182,10 +183,10 @@ class DashboardApplicationService:
   if snapshot is None:return DashboardView("Options Analytics",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Awaiting a FYERS option-chain snapshot.")
   chain=[]
   for row in snapshot.get("option_chain") or []:
-   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_LTP",0),"ask":row.get("Call_LTP",0)}, {"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_LTP",0),"ask":row.get("Put_LTP",0)}))
+   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_Bid"),"ask":row.get("Call_Ask")}, {"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_Bid"),"ask":row.get("Put_Ask")}))
   analysis=analyze_option_chain(chain,float(snapshot.get("spot") or 0)) if chain else {}
-  cards={"instrument":instrument,"mode":"DATA_ONLY_PAPER","spot":snapshot.get("spot"),"atm":analysis.get("atm"),"pcr":analysis.get("pcr"),"call_oi":analysis.get("call_oi"),"put_oi":analysis.get("put_oi"),"average_spread":analysis.get("average_spread")}
-  return DashboardView("Options Analytics",cards,chain,Freshness("FYERS",str(snapshot.get("market_captured_at")),"FRESH"))
+  cards={"instrument":instrument,"mode":"DATA_ONLY_PAPER","spot":snapshot.get("spot"),"expiry":snapshot.get("expiry") or "Current expiry","atm":analysis.get("atm"),"pcr":analysis.get("pcr"),"call_oi":analysis.get("call_oi"),"put_oi":analysis.get("put_oi"),"average_spread":analysis.get("average_spread"),"quote_coverage":analysis.get("quote_coverage"),"snapshot_id":snapshot.get("snapshot_id"),"captured_at":snapshot.get("market_captured_at")}
+  return DashboardView("Options Analytics",cards,build_option_ladder(snapshot.get("option_chain") or [],snapshot.get("spot")),Freshness("FYERS",str(snapshot.get("market_captured_at")),"FRESH"))
  def get_trade_journal_dashboard(self,*,instrument=None):
   trades=[trade for trade in self.fyers_research.completed_paper_trades() if not instrument or trade.instrument==instrument]
   if not trades:return DashboardView("Trade Journal",{"mode":"PAPER_ONLY","completed_trades":0},[],Freshness("CQRP",None,"AWAITING_CLOSED_TRADE"),"Journal entries appear after a paper trade closes.")

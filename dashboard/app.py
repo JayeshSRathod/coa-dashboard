@@ -14,7 +14,10 @@ from dashboard.services import DashboardApplicationService
 from dashboard.exports import export_csv, export_json
 from dashboard.configuration_page import render_configuration_page
 from dashboard.observation_page import render_observation_page
+from dashboard.structure_trails import build_level_trail, build_wall_trails
+from dashboard.option_ladder import filter_ladder_around_atm
 from src.application.ai_service import CopilotApplicationService
+from src.configuration_console import ConfigurationConsoleService
 from src.market_data.contracts import OptionChainRequest
 PAGES={"CQRPDW":"get_cqrpdw_dashboard","Market Intelligence":"get_market_dashboard","Scanner":"get_scanner_dashboard","COA Research":"get_coa_dashboard","Strike Activity":"get_dynamic_walls_dashboard","Strategy Lab":"get_strategy_lab_dashboard","Research Knowledge":"get_research_knowledge_dashboard","Local Research Assistant":"get_research_knowledge_dashboard","Portfolio":"get_portfolio_dashboard","Options Analytics":"get_options_dashboard","Trade Journal":"get_trade_journal_dashboard","Performance":"get_performance_dashboard","Execution":"get_execution_dashboard","Operations Center":"get_operations_dashboard","Alerts":"get_alert_dashboard","Observation Notes":"get_observation_notes_dashboard","Configuration":"get_configuration_dashboard"}
 INSTRUMENT_SCOPED_PAGES={"CQRPDW","Market Intelligence","Scanner","COA Research","Strike Activity","Portfolio","Options Analytics","Trade Journal","Performance","Execution","Operations Center","Alerts"}
@@ -43,6 +46,9 @@ def main(service=None):
             return
         if page == "Strike Activity":
             _render_strike_activity(st, active_service, instrument)
+            return
+        if page == "Options Analytics":
+            _render_options_analytics(st, active_service, instrument)
             return
         if page in INSTRUMENT_SCOPED_PAGES:
             view = getattr(active_service, PAGES[page])(instrument=instrument)
@@ -175,11 +181,55 @@ def _render_coa_research(st, service, instrument):
  sessions=service.available_sessions(instrument)
  session=st.selectbox("Session", ["All sessions", *sessions], key="coa_session")
  selected_session=None if session=="All sessions" else session
+ _render_intraday_structure_trail(st, service, instrument, selected_session or (sessions[0] if sessions else None))
  event_types=service.available_dynamic_event_types(instrument, selected_session)
  selected_events=st.multiselect("Structure events", event_types, default=event_types, key="coa_event_types")
  view=service.get_coa_dashboard(instrument=instrument, session_id=selected_session, event_types=tuple(selected_events))
  _render_view(st, view)
  st.caption("Events include COA1/COA2 scenario track, moving levels, breakout/retest evidence, and linked validation/risk/paper outcome IDs. Use Strike Activity for CE/PE strike-wall history.")
+
+def _render_intraday_structure_trail(st, service, instrument, session_id):
+ """Render full-session visual evidence without changing the research engine."""
+ st.subheader("Intraday COA Structure Trail")
+ if not session_id:
+  st.info("The trail will appear after the first captured structure session.")
+  return
+ try:
+  events=service.fyers_research.dynamic_events(instrument,session_id=session_id,event_types=(),limit=25_000)
+  walls=service.fyers_research.dynamic_walls(instrument,session_id=session_id,limit=25_000)
+ except Exception as exc:
+  st.warning(f"Structure trail is unavailable: {exc}")
+  return
+ points,markers=build_level_trail(events)
+ if not points:
+  st.info(f"No structure snapshots are available for {session_id} yet.")
+  return
+ import plotly.graph_objects as go
+ colors={"spot":"#f8fafc","support":"#22c55e","eos":"#38bdf8","resistance":"#ef4444","eor":"#a855f7"}
+ figure=go.Figure()
+ for field,label in (("spot","Spot"),("support","Support"),("eos","EOS"),("resistance","Resistance"),("eor","EOR")):
+  values=[point.get(field) for point in points]
+  if not any(value is not None for value in values):
+   continue
+  figure.add_trace(go.Scatter(x=[point["timestamp"] for point in points],y=values,mode="lines",name=f"{label} trail",connectgaps=True,line={"color":colors[field],"width":3 if field=="spot" else 1.5,"dash":"solid" if field=="spot" else "dot"},opacity=0.95 if field=="spot" else 0.48,hovertemplate=f"{label}: %{{y:.2f}}<br>%{{x}}<extra></extra>"))
+  last=next((point for point in reversed(points) if point.get(field) is not None),None)
+  if last and field!="spot":
+   figure.add_trace(go.Scatter(x=[last["timestamp"]],y=[last[field]],mode="markers+text",name=f"Current {label}",text=[f"{label} now"],textposition="top center",marker={"color":colors[field],"size":9},showlegend=False,hovertemplate=f"Current {label}: %{{y:.2f}}<extra></extra>"))
+ if st.checkbox("Show breakout, rejection and retest markers",value=True,key="structure_markers") and markers:
+  figure.add_trace(go.Scatter(x=[item["timestamp"] for item in markers],y=[item["spot"] for item in markers],mode="markers",name="Structure event",marker={"color":"#facc15","symbol":"diamond","size":9},text=[f"{item['event_type']}: {item['detail']}" for item in markers],hovertemplate="%{text}<br>%{x}<br>Spot: %{y:.2f}<extra></extra>"))
+ figure.update_layout(title=f"{instrument} — {session_id}",height=460,hovermode="x unified",legend={"orientation":"h","y":-0.22},margin={"l":20,"r":20,"t":50,"b":80},xaxis_title="Market time",yaxis_title="Index level")
+ st.plotly_chart(figure,width="stretch")
+ st.caption("Dim dotted lines show historical dynamic levels; labelled markers show the latest level. Yellow diamonds are recorded structural events, not trade instructions.")
+ if st.checkbox("Show CE/PE top-wall strike trails",value=True,key="wall_trails"):
+  wall_figure=go.Figure()
+  line_colors={"CE":"#ef4444","PE":"#22c55e"}
+  for trail in build_wall_trails(walls):
+   rank=int(trail["rank"])
+   points_for_wall=trail["points"]
+   wall_figure.add_trace(go.Scatter(x=[point["timestamp"] for point in points_for_wall],y=[point["strike"] for point in points_for_wall],mode="lines",name=trail["label"],line={"color":line_colors.get(trail["side"],"#94a3b8"),"width":3 if rank==1 else 1,"dash":"solid" if trail["metric"]=="VOLUME" else "dash"},opacity={1:0.9,2:0.55,3:0.3}.get(rank,0.25),text=[f"{point.get('contract') or trail['label']}<br>Value: {point.get('metric_value')}" for point in points_for_wall],hovertemplate="%{text}<br>%{x}<br>Strike: %{y}<extra></extra>"))
+  wall_figure.update_layout(title="Top CE/PE Volume and OI Wall-Strike Trail",height=360,hovermode="x unified",legend={"orientation":"h","y":-0.28},margin={"l":20,"r":20,"t":50,"b":90},xaxis_title="Market time",yaxis_title="Option strike")
+  st.plotly_chart(wall_figure,width="stretch")
+  st.caption("CE is red and PE is green; solid lines are volume walls, dashed lines are OI walls. Rank 1 is strongest; ranks 2–3 are dimmer context.")
 
 def _render_strike_activity(st, service, instrument):
  sessions=service.available_sessions(instrument)
@@ -188,20 +238,74 @@ def _render_strike_activity(st, service, instrument):
  _render_view(st, view)
  st.caption("Each row is a top-three CE/PE Volume or OI wall at a specific strike. This is the auditable strike-level evidence behind support/resistance migration.")
 
+def _render_options_analytics(st, service, instrument):
+ view=service.get_options_dashboard(instrument=instrument)
+ st.title("Options Analytics — Research Ladder")
+ st.caption(f"Source: {view.freshness.source} | Status: {view.freshness.status} | Updated: {view.freshness.updated_at}")
+ if view.error:
+  st.warning(view.error)
+  return
+ cards=view.cards
+ first,second,third,fourth,fifth=st.columns(5)
+ first.metric(f"{instrument} spot",cards.get("spot") or "—")
+ second.metric("ATM",cards.get("atm") or "—")
+ third.metric("PCR",_format_value(cards.get("pcr"),2))
+ fourth.metric("Quote coverage",_format_percent(cards.get("quote_coverage")))
+ fifth.metric("Average spread",_format_value(cards.get("average_spread"),2))
+ st.caption(f"Expiry: {cards.get('expiry')} | Snapshot: {cards.get('captured_at')} | Bid/ask and Greeks are shown only when supplied by the provider.")
+ if not view.rows:
+  st.info("No option-chain contracts are available yet.")
+  return
+ strikes=st.slider("Strikes on each side of ATM",min_value=1,max_value=max(1,(len(view.rows)-1)//2),value=min(10,max(1,(len(view.rows)-1)//2)),key="option_ladder_strikes")
+ ladder=filter_ladder_around_atm(view.rows,strikes)
+ show_greeks=st.checkbox("Show Greeks context",value=False,key="option_ladder_greeks")
+ table=[]
+ for row in ladder:
+  item={
+   "CE OI Δ":row.get("ce_oi_change"),"CE Volume":row.get("ce_volume"),"CE Bid":row.get("ce_bid"),"CE Ask":row.get("ce_ask"),"CE LTP":row.get("ce_ltp"),"CE Spread":row.get("ce_spread"),
+   "STRIKE":f"{row['strike']:.0f}" + ("  ← ATM" if row.get("is_atm") else ""),
+   "PE LTP":row.get("pe_ltp"),"PE Bid":row.get("pe_bid"),"PE Ask":row.get("pe_ask"),"PE Spread":row.get("pe_spread"),"PE Volume":row.get("pe_volume"),"PE OI Δ":row.get("pe_oi_change"),
+  }
+  if show_greeks:
+   item.update({"CE Δ":row.get("ce_delta"),"CE Γ":row.get("ce_gamma"),"CE Θ":row.get("ce_theta"),"CE Vega":row.get("ce_vega"),"CE IV":row.get("ce_iv"),"PE IV":row.get("pe_iv"),"PE Vega":row.get("pe_vega"),"PE Θ":row.get("pe_theta"),"PE Γ":row.get("pe_gamma"),"PE Δ":row.get("pe_delta")})
+  table.append(item)
+ st.subheader("Calls ← | Strike | → Puts")
+ st.dataframe(table,width="stretch",hide_index=True)
+ st.caption("The ladder is an evidence view, not a trade instruction. ATM is the strike nearest current spot. Blank quote/Greek cells mean the market-data provider did not supply that field.")
+ metric=st.radio("Compare option-chain activity",["Open interest","Volume","OI change"],horizontal=True,key="option_ladder_metric")
+ field={"Open interest":"oi","Volume":"volume","OI change":"oi_change"}[metric]
+ import plotly.graph_objects as go
+ figure=go.Figure()
+ figure.add_trace(go.Bar(name="CE",y=[str(int(row["strike"])) for row in ladder],x=[-(row.get(f"ce_{field}") or 0) for row in ladder],orientation="h",marker_color="#ef4444",hovertemplate="CE %{y}: %{x}<extra></extra>"))
+ figure.add_trace(go.Bar(name="PE",y=[str(int(row["strike"])) for row in ladder],x=[row.get(f"pe_{field}") or 0 for row in ladder],orientation="h",marker_color="#22c55e",hovertemplate="PE %{y}: %{x}<extra></extra>"))
+ figure.update_layout(title=f"{metric}: CE left / PE right",barmode="relative",height=420,margin={"l":25,"r":25,"t":50,"b":30},xaxis_title=metric,yaxis_title="Strike")
+ st.plotly_chart(figure,width="stretch")
+ _render_exports(st,table,f"{instrument}_option_ladder")
+
+def _format_value(value, decimals):
+ return "—" if value is None else f"{float(value):.{decimals}f}"
+
+def _format_percent(value):
+ return "—" if value is None else f"{float(value)*100:.0f}%"
+
 def _render_local_research_assistant(st, research, instrument):
  st.title("Local Research Assistant")
  st.caption("Optional local Ollama analysis. Advisory only: it cannot create orders, change COA, alter risk, or train itself from CQRP data.")
  assistant=CopilotApplicationService()
- status=assistant.local_ollama_status()
+ try:
+  enabled=bool(ConfigurationConsoleService().public_configuration()["local_ai"]["ollama_enabled"])
+ except Exception as exc:
+  st.error(f"Local AI configuration is unavailable: {exc}")
+  return
+ if not enabled:
+  st.info("Local advisory is OFF. Enable it in Configuration → Local AI when you want a local, evidence-based report. CQRP will not contact Ollama while it is OFF.")
+  return
+ status=assistant.local_ollama_status(enabled=True)
  if not status.get("reachable"):
   st.warning("Local Ollama is not reachable. The existing Offline Evidence Copilot remains available.")
   if status.get("reason"): st.caption(status["reason"])
   return
  st.success("Ollama is reachable on the local machine. No CQRP data leaves this computer.")
- enabled=st.toggle("Enable local advisory for this report", value=False, key="local_research_enabled")
- if not enabled:
-  st.info("Local advisory is OFF. Enable it only when you want an evidence-based research report; CQRP will not train or modify any rule.")
-  return
  sessions=research.dynamic_sessions(instrument)
  if not sessions:
   st.info("No captured dynamic-structure sessions are available for this instrument yet.")
@@ -209,7 +313,7 @@ def _render_local_research_assistant(st, research, instrument):
  session=st.selectbox("CQRP session", sessions, key="local_research_session")
  expiry=st.text_input("Expiry filter (optional, YYYY-MM-DD)", key="local_research_expiry") or None
  available=status.get("available_models", [])
- preferred=[model for model in ("mistral:latest", "gemma4:latest") if model in available]
+ preferred=[model for model in ("qwen3:0.6b", "mistral:latest", "gemma4:latest") if model in available]
  if not available:
   st.warning("Ollama is reachable but it reported no installed models.")
   return
@@ -218,7 +322,7 @@ def _render_local_research_assistant(st, research, instrument):
  if st.button("Generate advisory research report", type="primary"):
   with st.spinner("Analyzing selected CQRP evidence locally..."):
    try:
-    report=assistant.local_research_report(research, session_id=session, instrument=instrument, expiry=expiry, model=model, question=question)
+    report=assistant.local_research_report(research, session_id=session, instrument=instrument, expiry=expiry, model=model, question=question, enabled=True)
     st.session_state["local_research_report"]=report
    except RuntimeError as exc:
     st.error(f"Local advisory analysis failed: {exc}")

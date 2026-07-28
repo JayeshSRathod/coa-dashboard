@@ -56,6 +56,7 @@ class ConfigurationConsoleService:
             "brokers": brokers,
             "execution": dict(state["execution"]),
             "operations": dict(state["operations"]),
+            "local_ai": dict(state["local_ai"]),
             "history": list(state["history"]),
         }
 
@@ -109,6 +110,20 @@ class ConfigurationConsoleService:
         self._write_state(state)
         return dict(state["operations"])
 
+    def save_local_ollama_enabled(self, enabled: bool, *, actor: str = "local-dashboard") -> dict[str, Any]:
+        """Persist the explicit local-AI opt-in without storing model data or secrets.
+
+        This setting is deliberately independent of execution settings.  Turning
+        it on only permits a manually requested, read-only Ollama report.
+        """
+        state = self._read_state()
+        state["local_ai"] = {"ollama_enabled": bool(enabled)}
+        self._record(state, "local_ollama_setting_saved", "local_ai", actor, {
+            "ollama_enabled": bool(enabled),
+        })
+        self._write_state(state)
+        return dict(state["local_ai"])
+
     def test_connection(self, provider: str, *, actor: str = "local-dashboard") -> dict[str, str]:
         provider = self._provider(provider)
         public = self.public_configuration()["brokers"][provider]
@@ -149,6 +164,9 @@ class ConfigurationConsoleService:
             "brokers": {},
             "execution": {"execution_mode": "DISABLED", "trading_enabled": False, "kill_switch": True, "dry_run": True},
             "operations": {"scanner_interval_seconds": 60, "max_open_positions": 0},
+            # Local models are opt-in because they can consume substantial CPU,
+            # RAM, and GPU resources.  CQRP works fully without them.
+            "local_ai": {"ollama_enabled": False},
             "history": [],
         }
         if not self.configuration_path.exists():

@@ -7,6 +7,23 @@ from src.market_data.models import OptionChainSnapshot, OptionContract
 
 
 class FyersResearchServiceTests(unittest.TestCase):
+    def test_coa_snapshot_rows_preserve_provider_quote_and_oi_change_fields(self):
+        contract = OptionContract(
+            "NIFTY", 24000, "2026-07-30", "CE", 100, "FYERS", "2026-07-28T09:15:00+00:00",
+            volume=120, oi=500, oi_change=25, iv=14.5, bid=99.5, ask=100.5,
+            greeks={"delta": 0.5, "gamma": 0.02, "theta": -4.2, "vega": 8.1},
+        )
+        row = OptionChainSnapshot.new(
+            instrument_id="NIFTY", spot=24000, expiry="2026-07-30", provider="FYERS",
+            captured_at="2026-07-28T09:15:00+00:00", contracts=(contract,),
+        ).coa_rows()[0]
+        self.assertEqual(row["Call_Bid"], 99.5)
+        self.assertEqual(row["Call_Ask"], 100.5)
+        self.assertEqual(row["Call_OI_Change"], 25)
+        self.assertEqual(row["Call_IV"], 14.5)
+        self.assertEqual(row["Call_Delta"], 0.5)
+        self.assertEqual(row["Call_Gamma"], 0.02)
+
     def test_live_snapshot_is_appended_then_processed_by_coa_and_validation(self):
         database = Path(tempfile.mkdtemp()) / "research.db"
         service = FyersResearchService(database)

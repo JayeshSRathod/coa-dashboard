@@ -23,20 +23,30 @@ class CopilotApplicationService:
     def personas(self) -> tuple[str, ...]:
         return PERSONAS
 
-    def local_ollama_status(self, models: tuple[str, ...] = ("mistral:latest", "gemma4:latest")) -> dict:
+    def local_ollama_status(self, *, enabled: bool = False,
+                            models: tuple[str, ...] = ("qwen3:0.6b", "mistral:latest", "gemma4:latest")) -> dict:
+        if not enabled:
+            return {
+                "mode": "LOCAL_OLLAMA_ADVISORY", "enabled": False, "reachable": False,
+                "available_models": [], "recommended_models": {model: False for model in models},
+                "reason": "Local Ollama advisory is disabled in CQRP Configuration.",
+            }
         gateway = OllamaAdvisoryGateway(model=models[0])
         try:
             available = gateway.available_models()
-            return {"mode": "LOCAL_OLLAMA_ADVISORY", "reachable": True, "available_models": list(available),
+            return {"mode": "LOCAL_OLLAMA_ADVISORY", "enabled": True, "reachable": True, "available_models": list(available),
                     "recommended_models": {model: model in available for model in models}}
         except RuntimeError as exc:
-            return {"mode": "LOCAL_OLLAMA_ADVISORY", "reachable": False, "available_models": [],
+            return {"mode": "LOCAL_OLLAMA_ADVISORY", "enabled": True, "reachable": False, "available_models": [],
                     "recommended_models": {model: False for model in models}, "reason": str(exc)}
 
     def local_research_report(self, source: ResearchEvidenceSource, *, session_id: str,
                               instrument: str, expiry: str | None, model: str,
-                              question: str = "Summarize the recorded market structure, cite evidence, and propose only a paper-research experiment.") -> dict:
+                              question: str = "Summarize the recorded market structure, cite evidence, and propose only a paper-research experiment.",
+                              enabled: bool = False) -> dict:
         """Generate a local advisory report from read-only persisted CQRP evidence."""
+        if not enabled:
+            raise RuntimeError("Local Ollama advisory is disabled in CQRP Configuration.")
         evidence = ResearchPacketBuilder().build(source, instrument=instrument, session_id=session_id, expiry=expiry)
         if not evidence:
             return {"accepted": False, "answer": "No CQRP structure evidence matches the selected session, instrument, and expiry.",

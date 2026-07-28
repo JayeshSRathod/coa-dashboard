@@ -56,12 +56,22 @@ class LocalOllamaAdvisoryTests(unittest.TestCase):
     @patch("src.application.ai_service.OllamaAdvisoryGateway", _FakeLocalGateway)
     def test_local_report_is_retrieval_only_and_evidence_grounded(self):
         report = CopilotApplicationService().local_research_report(
-            _Source(), session_id="NIFTY:2026-07-28", instrument="NIFTY", expiry="2026-07-28", model="mistral:latest"
+            _Source(), session_id="NIFTY:2026-07-28", instrument="NIFTY", expiry="2026-07-28", model="mistral:latest", enabled=True
         )
         self.assertTrue(report["accepted"])
         self.assertEqual(report["mode"], "LOCAL_OLLAMA_ADVISORY")
         self.assertEqual(report["training"], "NONE_RETRIEVAL_ONLY")
         self.assertTrue(report["evidence_ids"])
+
+    def test_disabled_local_ollama_never_checks_or_invokes_the_server(self):
+        service = CopilotApplicationService()
+        status = service.local_ollama_status()
+        self.assertFalse(status["enabled"])
+        self.assertIn("disabled", status["reason"].lower())
+        with self.assertRaises(RuntimeError):
+            service.local_research_report(
+                _Source(), session_id="S-1", instrument="NIFTY", expiry=None, model="mistral:latest"
+            )
 
     def test_trade_directive_is_rejected_even_with_evidence(self):
         response = CopilotResponse.new(session_id="S-1", persona="RESEARCH", question="report",
