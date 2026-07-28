@@ -14,8 +14,9 @@ from dashboard.services import DashboardApplicationService
 from dashboard.exports import export_csv, export_json
 from dashboard.configuration_page import render_configuration_page
 from dashboard.observation_page import render_observation_page
+from src.application.ai_service import CopilotApplicationService
 from src.market_data.contracts import OptionChainRequest
-PAGES={"CQRPDW":"get_cqrpdw_dashboard","Market Intelligence":"get_market_dashboard","Scanner":"get_scanner_dashboard","COA Research":"get_coa_dashboard","Strike Activity":"get_dynamic_walls_dashboard","Strategy Lab":"get_strategy_lab_dashboard","Research Knowledge":"get_research_knowledge_dashboard","Portfolio":"get_portfolio_dashboard","Options Analytics":"get_options_dashboard","Trade Journal":"get_trade_journal_dashboard","Performance":"get_performance_dashboard","Execution":"get_execution_dashboard","Operations Center":"get_operations_dashboard","Alerts":"get_alert_dashboard","Observation Notes":"get_observation_notes_dashboard","Configuration":"get_configuration_dashboard"}
+PAGES={"CQRPDW":"get_cqrpdw_dashboard","Market Intelligence":"get_market_dashboard","Scanner":"get_scanner_dashboard","COA Research":"get_coa_dashboard","Strike Activity":"get_dynamic_walls_dashboard","Strategy Lab":"get_strategy_lab_dashboard","Research Knowledge":"get_research_knowledge_dashboard","Local Research Assistant":"get_research_knowledge_dashboard","Portfolio":"get_portfolio_dashboard","Options Analytics":"get_options_dashboard","Trade Journal":"get_trade_journal_dashboard","Performance":"get_performance_dashboard","Execution":"get_execution_dashboard","Operations Center":"get_operations_dashboard","Alerts":"get_alert_dashboard","Observation Notes":"get_observation_notes_dashboard","Configuration":"get_configuration_dashboard"}
 INSTRUMENT_SCOPED_PAGES={"CQRPDW","Market Intelligence","Scanner","COA Research","Strike Activity","Portfolio","Options Analytics","Trade Journal","Performance","Execution","Operations Center","Alerts"}
 def main(service=None):
     import streamlit as st
@@ -30,6 +31,9 @@ def main(service=None):
     def render_page(active_service):
         if page == "Observation Notes":
             render_observation_page(active_service.manual_observations)
+            return
+        if page == "Local Research Assistant":
+            _render_local_research_assistant(st, active_service.fyers_research, instrument)
             return
         if page == "Market Intelligence":
             _render_live_fyers_market(st, active_service, instrument)
@@ -183,6 +187,48 @@ def _render_strike_activity(st, service, instrument):
  view=service.get_dynamic_walls_dashboard(instrument=instrument, session_id=None if session=="All sessions" else session)
  _render_view(st, view)
  st.caption("Each row is a top-three CE/PE Volume or OI wall at a specific strike. This is the auditable strike-level evidence behind support/resistance migration.")
+
+def _render_local_research_assistant(st, research, instrument):
+ st.title("Local Research Assistant")
+ st.caption("Optional local Ollama analysis. Advisory only: it cannot create orders, change COA, alter risk, or train itself from CQRP data.")
+ assistant=CopilotApplicationService()
+ status=assistant.local_ollama_status()
+ if not status.get("reachable"):
+  st.warning("Local Ollama is not reachable. The existing Offline Evidence Copilot remains available.")
+  if status.get("reason"): st.caption(status["reason"])
+  return
+ st.success("Ollama is reachable on the local machine. No CQRP data leaves this computer.")
+ enabled=st.toggle("Enable local advisory for this report", value=False, key="local_research_enabled")
+ if not enabled:
+  st.info("Local advisory is OFF. Enable it only when you want an evidence-based research report; CQRP will not train or modify any rule.")
+  return
+ sessions=research.dynamic_sessions(instrument)
+ if not sessions:
+  st.info("No captured dynamic-structure sessions are available for this instrument yet.")
+  return
+ session=st.selectbox("CQRP session", sessions, key="local_research_session")
+ expiry=st.text_input("Expiry filter (optional, YYYY-MM-DD)", key="local_research_expiry") or None
+ available=status.get("available_models", [])
+ preferred=[model for model in ("mistral:latest", "gemma4:latest") if model in available]
+ if not available:
+  st.warning("Ollama is reachable but it reported no installed models.")
+  return
+ model=st.selectbox("Local model", preferred or available, key="local_research_model")
+ question=st.text_area("Research question", value="Summarize the recorded market structure, cite evidence, and propose only a paper-research experiment.", key="local_research_question")
+ if st.button("Generate advisory research report", type="primary"):
+  with st.spinner("Analyzing selected CQRP evidence locally..."):
+   try:
+    report=assistant.local_research_report(research, session_id=session, instrument=instrument, expiry=expiry, model=model, question=question)
+    st.session_state["local_research_report"]=report
+   except RuntimeError as exc:
+    st.error(f"Local advisory analysis failed: {exc}")
+ report=st.session_state.get("local_research_report")
+ if report:
+  st.subheader(f"Advisory report — {report.get('model', 'offline')}")
+  st.caption(f"Mode: {report.get('mode')} | Training: {report.get('training', 'NONE')}")
+  if report.get("accepted"): st.write(report.get("answer"))
+  else: st.warning(report.get("answer"))
+  st.caption("Evidence IDs: " + ", ".join(report.get("evidence_ids", [])))
 
 def _render_live_fyers_market(st,service,instrument):
  st.title("Market Intelligence")
