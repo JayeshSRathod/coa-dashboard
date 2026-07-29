@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 from .context_builder import ContextBuilder
-from .llm_gateway import OfflineEvidenceGateway
+from .llm_gateway import LLMGateway, OfflineEvidenceGateway
 from .models import CopilotResponse, EvidenceReference, PERSONAS
 from .repository import InMemoryCopilotRepository
 from .validators import validate_response
 
 
 class OfflineCopilotService:
-    def __init__(self, repository: InMemoryCopilotRepository | None = None, gateway: OfflineEvidenceGateway | None = None) -> None:
+    def __init__(self, repository: InMemoryCopilotRepository | None = None, gateway: LLMGateway | None = None) -> None:
         self.repository = repository or InMemoryCopilotRepository()
         self.gateway = gateway or OfflineEvidenceGateway()
         self.context_builder = ContextBuilder()

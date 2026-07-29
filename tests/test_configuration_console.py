@@ -62,6 +62,13 @@ class ConfigurationConsoleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.save_operations(scanner_interval_seconds=0, max_open_positions=2)
 
+    def test_local_ollama_is_off_by_default_and_audited_when_enabled(self) -> None:
+        self.assertFalse(self.service.public_configuration()["local_ai"]["ollama_enabled"])
+        saved = self.service.save_local_ollama_enabled(True)
+        self.assertTrue(saved["ollama_enabled"])
+        persisted = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["history"][-1]["action"], "local_ollama_setting_saved")
+
     def test_fyers_daily_session_values_are_masked_and_not_persisted(self) -> None:
         self.service.save_broker("fyers", enabled=True, credentials={
             "app_id": "FYERS-APP-200", "secret_key": "fyers-secret",

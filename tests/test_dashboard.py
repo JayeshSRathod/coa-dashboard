@@ -31,6 +31,15 @@ class DashboardTests(unittest.TestCase):
         decision = service.get_decision_dashboard()
         self.assertEqual(decision.cards["action"], "WAITING_FOR_DATA")
 
+    def test_market_views_accept_the_shared_instrument_scope(self):
+        service = DashboardApplicationService(fyers_research=self.research)
+        for instrument in ("NIFTY", "BANKNIFTY", "FINNIFTY"):
+            workstation = service.get_cqrpdw_dashboard(instrument=instrument)
+            self.assertEqual(workstation.cards["instrument"], instrument)
+            self.assertEqual(service.get_scanner_dashboard(instrument=instrument).title, "Scanner")
+            self.assertEqual(service.get_options_dashboard(instrument=instrument).title, "Options Analytics")
+            self.assertEqual(service.get_dynamic_walls_dashboard(instrument=instrument).cards["instrument"], instrument)
+
     def test_live_fyers_market_requires_a_daily_session_without_exposing_secrets(self):
         unavailable = DashboardApplicationService(secret_store=InMemorySecretStore(), fyers_research=self.research)
         view = unavailable.get_live_fyers_market(OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", ""))
@@ -60,6 +69,12 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(workstation.cards["mode"], "PAPER_ONLY")
         self.assertIn("rationale", workstation.cards)
         self.assertIn("lifecycle", workstation.cards)
+
+        operational = DashboardApplicationService(fyers_research=self.research)
+        self.assertEqual(operational.get_options_dashboard().title, "Options Analytics")
+        self.assertEqual(operational.get_execution_dashboard().cards["mode"], "PAPER_ONLY")
+        self.assertEqual(operational.get_operations_dashboard().title, "Operations Center")
+        self.assertEqual(operational.get_alert_dashboard().cards["mode"], "OBSERVATION_ONLY")
 
     @patch("src.market_data.providers.fyers_provider.requests.get")
     def test_fyers_transport_uses_current_option_chain_endpoint(self, get):

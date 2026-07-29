@@ -1091,6 +1091,130 @@ def _add_trade_decision_store(connection: sqlite3.Connection) -> None:
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
         connection.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END")
 
+
+def _add_manual_observation_store(connection: sqlite3.Connection) -> None:
+    """Add immutable human observations used for later research review."""
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS manual_observations (
+            observation_id TEXT PRIMARY KEY,
+            observed_at TEXT NOT NULL,
+            session_date TEXT NOT NULL,
+            instrument TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            scenario_number INTEGER,
+            scenario_name TEXT,
+            spot REAL,
+            support REAL,
+            resistance REAL,
+            eos REAL,
+            eor REAL,
+            narrative TEXT NOT NULL,
+            expected_outcome TEXT,
+            actual_outcome TEXT,
+            reference_text TEXT,
+            metadata_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            source TEXT NOT NULL CHECK(source = 'MANUAL')
+        );
+        CREATE INDEX IF NOT EXISTS idx_manual_observations_session
+            ON manual_observations(session_date, instrument, observed_at);
+        CREATE INDEX IF NOT EXISTS idx_manual_observations_event
+            ON manual_observations(event_type, observed_at);
+        CREATE TRIGGER IF NOT EXISTS manual_observations_no_update
+            BEFORE UPDATE ON manual_observations BEGIN
+            SELECT RAISE(ABORT, 'manual_observations is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS manual_observations_no_delete
+            BEFORE DELETE ON manual_observations BEGIN
+            SELECT RAISE(ABORT, 'manual_observations is append-only');
+            END;
+    """)
+
+
+def _add_dynamic_structure_store(connection: sqlite3.Connection) -> None:
+    """Add dynamic CE/PE wall snapshots and replayable structural events."""
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS dynamic_option_walls (
+            wall_id TEXT PRIMARY KEY,
+            snapshot_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            instrument TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            side TEXT NOT NULL CHECK(side IN ('CE', 'PE')),
+            metric TEXT NOT NULL CHECK(metric IN ('VOLUME', 'OI')),
+            rank INTEGER NOT NULL,
+            strike REAL NOT NULL,
+            metric_value REAL NOT NULL,
+            payload_json TEXT NOT NULL,
+            FOREIGN KEY(snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            UNIQUE(snapshot_id, side, metric, rank)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dynamic_walls_session_time
+            ON dynamic_option_walls(session_id, instrument, captured_at);
+        CREATE TABLE IF NOT EXISTS dynamic_structure_events (
+            event_id TEXT PRIMARY KEY,
+            snapshot_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            instrument TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            event_key TEXT NOT NULL,
+            scenario_track TEXT NOT NULL,
+            coa1_scenario_number INTEGER,
+            coa2_scenario_number INTEGER,
+            coa_result_id TEXT,
+            validation_id TEXT,
+            signal_id TEXT,
+            risk_decision_id TEXT,
+            paper_trade_id TEXT,
+            outcome_state TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            FOREIGN KEY(coa_result_id) REFERENCES coa_results(coa_result_id),
+            FOREIGN KEY(validation_id) REFERENCES validation_results(validation_id),
+            FOREIGN KEY(signal_id) REFERENCES research_signals(signal_id),
+            FOREIGN KEY(risk_decision_id) REFERENCES risk_decisions(decision_id),
+            FOREIGN KEY(paper_trade_id) REFERENCES simulated_trades(trade_id),
+            UNIQUE(snapshot_id, event_type, event_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dynamic_events_session_time
+            ON dynamic_structure_events(session_id, instrument, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_dynamic_events_type_time
+            ON dynamic_structure_events(event_type, occurred_at);
+        CREATE TRIGGER IF NOT EXISTS dynamic_option_walls_no_update
+            BEFORE UPDATE ON dynamic_option_walls BEGIN
+            SELECT RAISE(ABORT, 'dynamic_option_walls is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS dynamic_option_walls_no_delete
+            BEFORE DELETE ON dynamic_option_walls BEGIN
+            SELECT RAISE(ABORT, 'dynamic_option_walls is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS dynamic_structure_events_no_update
+            BEFORE UPDATE ON dynamic_structure_events BEGIN
+            SELECT RAISE(ABORT, 'dynamic_structure_events is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS dynamic_structure_events_no_delete
+            BEFORE DELETE ON dynamic_structure_events BEGIN
+            SELECT RAISE(ABORT, 'dynamic_structure_events is append-only');
+            END;
+    """)
+
+
+def _add_dynamic_contract_context(connection: sqlite3.Connection) -> None:
+    """Expose the expiry/contract context of immutable dynamic-wall evidence."""
+    connection.execute("ALTER TABLE dynamic_option_walls ADD COLUMN expiry TEXT")
+    connection.execute("ALTER TABLE dynamic_structure_events ADD COLUMN expiry TEXT")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dynamic_walls_contract_time "
+        "ON dynamic_option_walls(instrument, expiry, strike, captured_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dynamic_events_contract_time "
+        "ON dynamic_structure_events(instrument, expiry, event_type, occurred_at)"
+    )
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -1111,4 +1235,7 @@ RESEARCH_MIGRATIONS = (
     Migration(17, "market_data_platform", _add_market_data_platform_store),
     Migration(18, "canonical_coa_engine", _add_canonical_coa_store),
     Migration(19, "trade_decision_engine", _add_trade_decision_store),
+    Migration(20, "manual_observation_notes", _add_manual_observation_store),
+    Migration(21, "dynamic_coa_structure_events", _add_dynamic_structure_store),
+    Migration(22, "dynamic_contract_context", _add_dynamic_contract_context),
 )

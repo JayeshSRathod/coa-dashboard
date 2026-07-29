@@ -18,8 +18,8 @@ def render_configuration_page(service: ConfigurationConsoleService | None = None
         st.error(f"Configuration is unavailable: {exc}")
         return
 
-    broker_tab, telegram_tab, execution_tab, operations_tab, history_tab, test_tab = st.tabs(
-        ["Broker Settings", "Telegram", "Execution Mode", "Scanner & Risk", "Configuration History", "Test Connections"]
+    broker_tab, telegram_tab, execution_tab, operations_tab, local_ai_tab, history_tab, test_tab = st.tabs(
+        ["Broker Settings", "Telegram", "Execution Mode", "Scanner & Risk", "Local AI", "Configuration History", "Test Connections"]
     )
     with broker_tab:
         _render_provider(st, service, state, "dhan", "Dhan", ("client_id", "access_token"))
@@ -50,10 +50,25 @@ def render_configuration_page(service: ConfigurationConsoleService | None = None
                 st.success("Operational settings saved.")
             except Exception as exc:
                 st.error(f"Operational settings were not saved: {exc}")
+    with local_ai_tab:
+        local_ai = state["local_ai"]
+        enabled = st.toggle(
+            "Enable local Ollama advisory assistant",
+            value=bool(local_ai["ollama_enabled"]),
+            help="Off by default. When off, CQRP never contacts or loads Ollama; all market capture and paper research continue normally.",
+        )
+        st.caption("The assistant is read-only and advisory-only. It cannot place orders, alter COA, change risk, or train itself from CQRP data.")
+        if st.button("Save local AI setting"):
+            try:
+                saved = service.save_local_ollama_enabled(enabled)
+                status = "ON" if saved["ollama_enabled"] else "OFF"
+                st.success(f"Local Ollama advisory is {status}.")
+            except Exception as exc:
+                st.error(f"Local AI setting was not saved: {exc}")
     with history_tab:
         history = list(reversed(state["history"]))
         if history:
-            st.dataframe(history, use_container_width=True)
+            st.dataframe(history, width="stretch")
         else:
             st.info("No local configuration changes have been recorded yet.")
     with test_tab:

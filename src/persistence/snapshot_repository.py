@@ -104,6 +104,14 @@ class SnapshotRepository(SQLiteRepository):
         ).fetchall()
         return [_decode(dict(row)) for row in rows]
 
+    def list_by_instrument(self, instrument: str) -> list[dict[str, Any]]:
+        """Replay all stored snapshots in deterministic market-time order."""
+        rows = self.connection.execute(
+            "SELECT * FROM market_snapshots WHERE instrument = ? "
+            "ORDER BY market_captured_at ASC, snapshot_id ASC", (instrument,),
+        ).fetchall()
+        return [_decode(dict(row)) for row in rows]
+
     def record_event(
         self,
         event_type: str,

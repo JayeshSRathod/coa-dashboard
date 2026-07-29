@@ -108,18 +108,34 @@ class OptionChainSnapshot:
         data["quality"] = self.quality.value
         return data
 
-    def coa_rows(self) -> list[dict[str, float]]:
+    def coa_rows(self) -> list[dict[str, Any]]:
         """Return the legacy COA column shape without exposing broker JSON."""
         strikes: dict[float, dict[str, float]] = {}
         for contract in self.contracts:
             row = strikes.setdefault(contract.strike, {
                 "Strike": contract.strike, "Call_OI": 0.0, "Call_Vol": 0.0,
                 "Call_LTP": 0.0, "Put_LTP": 0.0, "Put_Vol": 0.0, "Put_OI": 0.0,
+                "Call_Bid": None, "Call_Ask": None, "Call_OI_Change": None, "Call_IV": None,
+                "Call_Delta": None, "Call_Gamma": None, "Call_Theta": None, "Call_Vega": None,
+                "Put_Bid": None, "Put_Ask": None, "Put_OI_Change": None, "Put_IV": None,
+                "Put_Delta": None, "Put_Gamma": None, "Put_Theta": None, "Put_Vega": None,
             })
             if contract.option_type == "CE":
-                row.update({"Call_OI": float(contract.oi or 0), "Call_Vol": float(contract.volume or 0), "Call_LTP": contract.premium})
+                row.update({
+                    "Call_OI": float(contract.oi or 0), "Call_Vol": float(contract.volume or 0),
+                    "Call_LTP": contract.premium, "Call_Bid": contract.bid, "Call_Ask": contract.ask,
+                    "Call_OI_Change": contract.oi_change, "Call_IV": contract.iv,
+                    "Call_Delta": contract.greeks.get("delta"), "Call_Gamma": contract.greeks.get("gamma"),
+                    "Call_Theta": contract.greeks.get("theta"), "Call_Vega": contract.greeks.get("vega"),
+                })
             elif contract.option_type == "PE":
-                row.update({"Put_OI": float(contract.oi or 0), "Put_Vol": float(contract.volume or 0), "Put_LTP": contract.premium})
+                row.update({
+                    "Put_OI": float(contract.oi or 0), "Put_Vol": float(contract.volume or 0),
+                    "Put_LTP": contract.premium, "Put_Bid": contract.bid, "Put_Ask": contract.ask,
+                    "Put_OI_Change": contract.oi_change, "Put_IV": contract.iv,
+                    "Put_Delta": contract.greeks.get("delta"), "Put_Gamma": contract.greeks.get("gamma"),
+                    "Put_Theta": contract.greeks.get("theta"), "Put_Vega": contract.greeks.get("vega"),
+                })
         return [strikes[strike] for strike in sorted(strikes)]
 
 

@@ -16,6 +16,9 @@ from src.application.fyers_research import FyersResearchService
 from src.configuration_console.secrets import CompositeSecretStore, SecretStore
 from src.market_data.contracts import OptionChainRequest
 from src.market_data.fyers_session import FyersDataSessionFactory
+from src.research.manual_observations import ManualObservationService
+from src.persistence.manual_observation_repository import ManualObservationRepository
+from .option_ladder import build_option_ladder
 
 from .view_models import DashboardView,Freshness
 def _fresh(source="local"):return Freshness(source,datetime.now(timezone.utc).isoformat(),"FRESH")
@@ -26,19 +29,37 @@ class DashboardApplicationService:
   self.providers=dict(providers or {})
   self.fyers_factory=fyers_factory or FyersDataSessionFactory(secret_store or CompositeSecretStore())
   self.fyers_research=fyers_research or FyersResearchService(os.getenv("CQRP_RESEARCH_DATABASE_PATH",str(Path.home()/".cqrp"/"research.db")))
+  # Use the same already-migrated read connection as the research service.
+  # This avoids creating a second connection in Streamlit/test contexts and
+  # preserves the repository-only persistence boundary.
+  self.manual_observations=ManualObservationService(
+      "", repository=ManualObservationRepository(self.fyers_research.connection)
+  )
+ def close(self):
+  """Release the dashboard's short-lived read connection after a render."""
+  self.fyers_research.close()
+  self.manual_observations.close()
  def _view(self,name):
   try:
    data=self.providers.get(name,lambda:{})()
    return DashboardView(name.replace("_"," ").title(),dict(data.get("cards",{})) if isinstance(data,dict) else {},data.get("rows",[]) if isinstance(data,dict) else [],_fresh(name))
   except Exception:return DashboardView(name.replace("_"," ").title(),{},[],Freshness(name,None,"UNAVAILABLE"),"Data unavailable. Check the related CQRP service.")
  def get_home_dashboard(self):return self._view("home")
+ def get_observation_notes_dashboard(self):
+  rows=self.manual_observations.recent(limit=100)
+  return DashboardView("Observation Notes",{"count":len(rows),"authority":"MANUAL_APPEND_ONLY"},rows,_fresh("manual_observations"))
  def get_market_dashboard(self):return self._view("market")
- def get_cqrpdw_dashboard(self):
+ def available_instruments(self):
+  """Stable selector values, including instruments captured by the worker."""
+  return sorted(set(["NIFTY","BANKNIFTY","FINNIFTY"] + self.fyers_research.instruments()))
+ def available_sessions(self,instrument):return self.fyers_research.dynamic_sessions(instrument)
+ def available_dynamic_event_types(self,instrument,session_id=None):return self.fyers_research.dynamic_event_types(instrument,session_id)
+ def get_cqrpdw_dashboard(self,*,instrument="NIFTY"):
   """The operator's single, read-only CQRP Decision Workstation view."""
-  latest=self.fyers_research.latest("NIFTY")
-  snapshot=self.fyers_research.latest_snapshot("NIFTY")
+  latest=self.fyers_research.latest(instrument)
+  snapshot=self.fyers_research.latest_snapshot(instrument)
   if latest is None or snapshot is None:
-   cards={"action":"WAITING_FOR_DATA","mode":"PAPER_ONLY","phase":"AWAITING_SNAPSHOT","rationale":[],"warnings":[],"trade":None,"lifecycle":[]}
+   cards={"action":"WAITING_FOR_DATA","mode":"PAPER_ONLY","instrument":instrument,"phase":"AWAITING_SNAPSHOT","rationale":[],"warnings":[],"trade":None,"lifecycle":[]}
    return DashboardView("CQRPDW",cards,[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Start the local FYERS worker and wait for its first snapshot.")
   coa=latest.coa_result;validation=latest.validation_result;signal=latest.signal
   risk_mode=coa.risk_mode if coa else None
@@ -47,7 +68,7 @@ class DashboardApplicationService:
   elif signal.signal_type in {"BUY","SELL"}:action,reason=f"PAPER_{signal.signal_type}","CQRP conditions passed; paper lifecycle tracking is active."
   elif signal.signal_type=="WATCHLIST":action,reason="WATCHLIST","A scenario exists, but CQRP evidence is incomplete."
   else:action,reason="NO_TRADE","No configured directional scenario applies."
-  trade=self.fyers_research.paper_trade_detail(latest.paper_trade_id) if latest.paper_trade_id else self.fyers_research.current_paper_trade()
+  trade=self.fyers_research.paper_trade_detail(latest.paper_trade_id) if latest.paper_trade_id else self.fyers_research.current_paper_trade(instrument=instrument)
   phase=self._paper_phase(trade)
   rationale=list(signal.reasons) if signal else []
   warnings=list(signal.warnings) if signal else []
@@ -71,7 +92,7 @@ class DashboardApplicationService:
    risk={"decision":stored_risk.decision,"requested_quantity":stored_risk.requested_quantity,"approved_quantity":stored_risk.approved_quantity,"capital_required":stored_risk.capital_required,"capital_available":stored_risk.capital_available,"reason":stored_risk.rejection_reason,"metrics":dict(stored_risk.risk_metrics)}
   chain=[]
   for row in snapshot.get("option_chain") or []:
-   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_LTP",0),"ask":row.get("Call_LTP",0)},{"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_LTP",0),"ask":row.get("Put_LTP",0)}))
+   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_Bid"),"ask":row.get("Call_Ask")},{"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_Bid"),"ask":row.get("Put_Ask")}))
   options=analyze_option_chain(chain,float(snapshot.get("spot") or 0)) if chain else {}
   quality=float(validation.overall_score if validation else 0)
   candidate=OpportunityScanner().rank([{"instrument_id":snapshot.get("instrument","NIFTY"),"price":snapshot.get("spot",0),"coa":quality,"trend_score":100 if signal and signal.direction=="BUY" else 0,"momentum":quality,"liquidity":quality,"volume":quality,"relative_strength":quality,"risk":100 if risk and risk["decision"]!="REJECTED" else 0,"volatility":50,"quality":quality,"tradable":signal is not None}])
@@ -117,44 +138,83 @@ class DashboardApplicationService:
   cards={"action":action,"reason":reason,"mode":"PAPER_ONLY","instrument":snapshot.get("instrument"),"spot":snapshot.get("spot"),"scenario":coa.scenario if coa else None,"risk_mode":risk_mode,"support":coa.support if coa else None,"resistance":coa.resistance if coa else None,"eos":coa.eos if coa else None,"eor":coa.eor if coa else None,"validation_score":validation.overall_score if validation else None,"confidence":validation.confidence_band if validation else None,"signal_type":signal.signal_type if signal else None,"paper_trade_id":latest.paper_trade_id}
   rows=[{"check":"COA scenario","result":coa.scenario if coa else "Unavailable"},{"check":"Risk gate","result":risk_mode or "Unavailable"},{"check":"Validation","result":f"{validation.overall_score:.2f} ({validation.confidence_band})" if validation else "Unavailable"},{"check":"Research signal","result":signal.signal_type if signal else "Unavailable"},{"check":"Execution","result":"PAPER ONLY — no FYERS order endpoint"}]
   return DashboardView("Decision Dashboard",cards,rows,Freshness("FYERS",str(snapshot.get("market_captured_at")),"FRESH"),None)
- def get_latest_fyers_market(self):
-  snapshot=self.fyers_research.latest_snapshot("NIFTY")
+ def get_latest_fyers_market(self,*,instrument="NIFTY"):
+  snapshot=self.fyers_research.latest_snapshot(instrument)
   if snapshot is None:return DashboardView("FYERS Live Market",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"The local FYERS worker has not captured a snapshot yet.")
   rows=snapshot.get("option_chain") or []
   cards={"instrument":snapshot.get("instrument"),"spot":snapshot.get("spot"),"expiry":snapshot.get("expiry") or "Current expiry","contracts":len(rows),"snapshot_id":snapshot.get("snapshot_id"),"mode":"DATA_ONLY_PAPER"}
   return DashboardView("FYERS Live Market",cards,rows,Freshness(str(snapshot.get("market_source") or "FYERS"),str(snapshot.get("market_captured_at")),"FRESH"))
- def get_scanner_dashboard(self):
-  latest=self.fyers_research.latest("NIFTY")
+ def get_scanner_dashboard(self,*,instrument="NIFTY"):
+  latest=self.fyers_research.latest(instrument)
   if latest is None:return DashboardView("Scanner",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Fetch live FYERS market data to start scanner research.")
   if latest.signal is None:return DashboardView("Scanner",{"snapshot_id":latest.snapshot_id},[],Freshness("FYERS",None,"PROCESSING_FAILED"),latest.error or "Research signal is unavailable for this snapshot.")
   signal=latest.signal
-  cards={"snapshot_id":latest.snapshot_id,"signal_type":signal.signal_type,"direction":signal.direction,"scenario":signal.scenario,"confidence_score":signal.confidence_score,"confidence_band":signal.confidence_band,"entry":signal.entry_price,"target_1":signal.target_1,"target_2":signal.target_2,"mode":"RESEARCH_ONLY"}
+  cards={"instrument":instrument,"snapshot_id":latest.snapshot_id,"signal_type":signal.signal_type,"direction":signal.direction,"scenario":signal.scenario,"confidence_score":signal.confidence_score,"confidence_band":signal.confidence_band,"entry":signal.entry_price,"target_1":signal.target_1,"target_2":signal.target_2,"mode":"RESEARCH_ONLY"}
   rows=[{"reason":reason} for reason in signal.reasons]
   return DashboardView("Scanner",cards,rows,Freshness("FYERS",signal.created_at,"FRESH"),latest.error)
- def get_coa_dashboard(self):
-  latest=self.fyers_research.latest("NIFTY")
+ def get_coa_dashboard(self,*,instrument="NIFTY",session_id=None,event_types=()):
+  latest=self.fyers_research.latest(instrument)
   if latest is None:return DashboardView("Coa Research",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Fetch live FYERS market data to start COA research.")
   if latest.coa_result is None:return DashboardView("Coa Research",{"snapshot_id":latest.snapshot_id},[],Freshness("FYERS",None,"PROCESSING_FAILED"),latest.error or "COA research is unavailable for this snapshot.")
   coa=latest.coa_result; validation=latest.validation_result
-  cards={"snapshot_id":latest.snapshot_id,"scenario":coa.scenario,"support":coa.support,"resistance":coa.resistance,"eos":coa.eos,"eor":coa.eor,"risk_mode":coa.risk_mode,"validation_score":validation.overall_score if validation else None,"confidence":validation.confidence_band if validation else None,"validated":validation.is_valid if validation else False,"mode":"RESEARCH_ONLY"}
-  return DashboardView("Coa Research",cards,[],Freshness("FYERS",coa.market_timestamp,"FRESH"),latest.error)
+  events=self.fyers_research.dynamic_events(instrument,session_id=session_id,event_types=tuple(event_types),limit=25_000)
+  walls=self.fyers_research.dynamic_walls(instrument,session_id=session_id,limit=25_000)
+  cards={"instrument":instrument,"session_id":session_id or "ALL_SESSIONS","snapshot_id":latest.snapshot_id,"scenario":coa.scenario,"support":coa.support,"resistance":coa.resistance,"eos":coa.eos,"eor":coa.eor,"risk_mode":coa.risk_mode,"validation_score":validation.overall_score if validation else None,"confidence":validation.confidence_band if validation else None,"validated":validation.is_valid if validation else False,"mode":"RESEARCH_ONLY","dynamic_wall_records":len(walls)}
+  cards["dynamic_structure_events"] = len(events)
+  rows=[]
+  for event in events:
+   payload=event.get("payload") or {}; distances=payload.get("level_distances") or {}
+   rows.append({"record_type":"EVENT","occurred_at":event.get("occurred_at"),"instrument":event.get("instrument"),"expiry":event.get("expiry") or payload.get("expiry"),"event":event.get("event_type"),"key":event.get("event_key"),"scenario_track":event.get("scenario_track"),"coa1_scenario":event.get("coa1_scenario_number"),"coa2_scenario":event.get("coa2_scenario_number"),"spot":payload.get("spot") or payload.get("after_spot"),"support_distance":distances.get("SUPPORT"),"resistance_distance":distances.get("RESISTANCE"),"eos_distance":distances.get("EOS"),"eor_distance":distances.get("EOR"),"strike":payload.get("strike"),"contract":payload.get("contract"),"from_strike":payload.get("from_strike"),"to_strike":payload.get("to_strike"),"volume_trigger_strike":payload.get("volume_trigger_strike"),"five_minute_result":payload.get("result"),"outcome":event.get("outcome_state"),"details":payload})
+  return DashboardView("Coa Research",cards,rows,Freshness("FYERS",coa.market_timestamp,"FRESH"),latest.error)
+ def get_dynamic_walls_dashboard(self,*,instrument="NIFTY",session_id=None):
+  walls=self.fyers_research.dynamic_walls(instrument,session_id=session_id,limit=25_000)
+  rows=[{"captured_at":wall.get("captured_at"),"instrument":wall.get("instrument"),"expiry":wall.get("expiry"),"contract":(wall.get("payload") or {}).get("contract"),"side":wall.get("side"),"metric":wall.get("metric"),"rank":wall.get("rank"),"strike":wall.get("strike"),"metric_value":wall.get("metric_value"),"snapshot_id":wall.get("snapshot_id"),"details":wall.get("payload")} for wall in walls]
+  return DashboardView("Strike Activity & Wall Timeline",{"instrument":instrument,"session_id":session_id or "ALL_SESSIONS","wall_records":len(rows),"scope":"TOP_3_CE_PE_VOLUME_OI_WALLS"},rows,_fresh("CQRP"),None if rows else "No dynamic wall records match the selected filters.")
  def get_strategy_lab_dashboard(self):return self._view("strategy_lab")
  def get_research_knowledge_dashboard(self):return self._view("research_knowledge")
- def get_portfolio_dashboard(self):
-  rows=self.fyers_research.paper_states()
+ def get_portfolio_dashboard(self,*,instrument=None):
+  rows=self.fyers_research.paper_states();rows=[row for row in rows if not instrument or row.get("instrument")==instrument]
   if not rows:return DashboardView("Portfolio",{"mode":"PAPER_ONLY","open_positions":0,"realized_pnl":0.0},[],Freshness("CQRP",None,"AWAITING_SIGNAL"),"No directional research signal has created a paper trade yet.")
   open_positions=sum(row["status"] in {"PENDING","OPEN","PARTIALLY_EXITED"} for row in rows)
   realized=sum(float(row["realized_pnl"] or 0) for row in rows)
   return DashboardView("Portfolio",{"mode":"PAPER_ONLY","open_positions":open_positions,"paper_trades":len(rows),"realized_pnl":round(realized,2)},rows,Freshness("CQRP",None,"FRESH"))
- def get_options_dashboard(self):return self._view("options")
- def get_trade_journal_dashboard(self):
-  view=self.get_portfolio_dashboard();return DashboardView("Trade Journal",view.cards,view.rows,view.freshness,view.error)
- def get_performance_dashboard(self):
-  view=self.get_portfolio_dashboard();return DashboardView("Performance",view.cards,view.rows,view.freshness,view.error)
- def get_execution_dashboard(self):
-  view=self.get_portfolio_dashboard();return DashboardView("Execution (Paper Only)",view.cards,view.rows,view.freshness,view.error)
- def get_operations_dashboard(self):return self._view("operations")
- def get_alert_dashboard(self):return self._view("alerts")
+ def get_options_dashboard(self,*,instrument="NIFTY"):
+  snapshot=self.fyers_research.latest_snapshot(instrument)
+  if snapshot is None:return DashboardView("Options Analytics",{},[],Freshness("FYERS",None,"AWAITING_SNAPSHOT"),"Awaiting a FYERS option-chain snapshot.")
+  chain=[]
+  for row in snapshot.get("option_chain") or []:
+   chain.extend(({"strike":row.get("Strike"),"option_type":"CALL","oi":row.get("Call_OI",0),"bid":row.get("Call_Bid"),"ask":row.get("Call_Ask")}, {"strike":row.get("Strike"),"option_type":"PUT","oi":row.get("Put_OI",0),"bid":row.get("Put_Bid"),"ask":row.get("Put_Ask")}))
+  analysis=analyze_option_chain(chain,float(snapshot.get("spot") or 0)) if chain else {}
+  cards={"instrument":instrument,"mode":"DATA_ONLY_PAPER","spot":snapshot.get("spot"),"expiry":snapshot.get("expiry") or "Current expiry","atm":analysis.get("atm"),"pcr":analysis.get("pcr"),"call_oi":analysis.get("call_oi"),"put_oi":analysis.get("put_oi"),"average_spread":analysis.get("average_spread"),"quote_coverage":analysis.get("quote_coverage"),"snapshot_id":snapshot.get("snapshot_id"),"captured_at":snapshot.get("market_captured_at")}
+  return DashboardView("Options Analytics",cards,build_option_ladder(snapshot.get("option_chain") or [],snapshot.get("spot")),Freshness("FYERS",str(snapshot.get("market_captured_at")),"FRESH"))
+ def get_trade_journal_dashboard(self,*,instrument=None):
+  trades=[trade for trade in self.fyers_research.completed_paper_trades() if not instrument or trade.instrument==instrument]
+  if not trades:return DashboardView("Trade Journal",{"mode":"PAPER_ONLY","completed_trades":0},[],Freshness("CQRP",None,"AWAITING_CLOSED_TRADE"),"Journal entries appear after a paper trade closes.")
+  rows=[]
+  for trade in trades:
+   record={"pnl":trade.realized_pnl,"confidence":trade.confidence_score or 0,"quantity":trade.quantity,"direction":"LONG" if trade.direction=="BUY" else "SHORT","exit_price":trade.exit_price,"stop_loss":None,"validation_complete":True}
+   issues=violations(record,{"max_quantity":1})
+   rows.append({"trade_id":trade.trade_id,"instrument":trade.instrument,"scenario":trade.scenario,"pnl":trade.realized_pnl,"categories":list(classify_trade(record)),"violations":issues,"compliance_score":compliance_score(record,issues)})
+  return DashboardView("Trade Journal",{"mode":"PAPER_ONLY","completed_trades":len(rows)},rows,_fresh("CQRP"))
+ def get_performance_dashboard(self,*,instrument=None):
+  trades=[trade for trade in self.fyers_research.completed_paper_trades() if not instrument or trade.instrument==instrument]
+  report=PerformanceAnalyticsEngine().report(trades,report_type="PAPER_PERFORMANCE")
+  cards={"mode":"PAPER_ONLY"}|dict(report.metrics)
+  return DashboardView("Performance",cards,PerformanceAnalyticsEngine().equity_curve(trades),_fresh("CQRP"),None if trades else "Performance metrics will populate after closed paper trades.")
+ def get_execution_dashboard(self,*,instrument=None):
+  rows=[row for row in self.fyers_research.paper_states() if not instrument or row.get("instrument")==instrument]
+  active=sum(row["status"] in {"PENDING","OPEN","PARTIALLY_EXITED"} for row in rows)
+  return DashboardView("Execution (Paper Only)",{"mode":"PAPER_ONLY","active_paper_trades":active,"total_paper_trades":len(rows),"broker_orders":0},rows,_fresh("CQRP"),None if rows else "No paper execution lifecycle exists yet.")
+ def get_operations_dashboard(self,*,instrument=None):
+  health=self.fyers_research.market_health();events=[event for event in self.fyers_research.system_events() if not instrument or event.get("instrument")==instrument]
+  failures=[event for event in events if str(event.get("severity","")) in {"ERROR","CRITICAL"}]
+  cards={"mode":"OBSERVATION_ONLY","provider_health_records":len(health),"recent_events":len(events),"recent_failures":len(failures),"worker_status":"DEGRADED" if failures else "HEALTHY"}
+  rows=[{"occurred_at":event.get("occurred_at"),"event_type":event.get("event_type"),"severity":event.get("severity"),"instrument":event.get("instrument"),"details":event.get("payload")} for event in events]
+  return DashboardView("Operations Center",cards,rows,_fresh("CQRP"),None if events else "No operational events have been recorded yet.")
+ def get_alert_dashboard(self,*,instrument=None):
+  events=[event for event in self.fyers_research.system_events() if not instrument or event.get("instrument")==instrument]
+  rows=[{"occurred_at":event.get("occurred_at"),"severity":event.get("severity"),"event_type":event.get("event_type"),"instrument":event.get("instrument"),"details":event.get("payload")} for event in events if str(event.get("severity","")) in {"ERROR","CRITICAL","WARNING"}]
+  return DashboardView("Alerts",{"active_alerts":len(rows),"mode":"OBSERVATION_ONLY"},rows,_fresh("CQRP"),None if rows else "No persisted CQRP warning or error alerts are active.")
  def get_configuration_dashboard(self):return self._view("configuration")
  def fyers_status(self):
   """Return safe daily-session readiness without exposing a secret value."""
