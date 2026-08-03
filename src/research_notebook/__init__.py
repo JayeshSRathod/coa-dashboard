@@ -1,6 +1,5 @@
 """CQRP research notebook and experiment registry."""
 
-from .models import Experiment, ExperimentEvent
-from .service import ResearchNotebookService
+from .models import ExperimentRun, ResearchConclusion, ResearchExperiment, ResearchObservation
 
-__all__ = ["Experiment", "ExperimentEvent", "ResearchNotebookService"]
+__all__ = ["ExperimentRun", "ResearchConclusion", "ResearchExperiment", "ResearchObservation"]
