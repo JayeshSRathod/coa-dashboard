@@ -1,4 +1,4 @@
-"""Immutable models for deterministic next-session PAPER trade plans."""
+"""Immutable models for deterministic PAPER trade plans."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ class TradePlanningInput:
     target_2: float | None
     confidence_score: float
     validation_passed: bool
+    planning_horizon: str = "NEXT_SESSION"
     technical_status: str | None = None
     technical_bias: str | None = None
     momentum_state: str | None = None
@@ -48,9 +49,13 @@ class TradePlanningInput:
             raise ValueError("instrument is required")
         if self.direction not in {None, "BUY", "SELL"}:
             raise ValueError("direction must be BUY, SELL, or None")
+        horizon = str(self.planning_horizon).upper()
+        if horizon not in {"NEXT_SESSION", "INTRADAY"}:
+            raise ValueError("planning_horizon must be NEXT_SESSION or INTRADAY")
         confidence = float(self.confidence_score)
         if not 0 <= confidence <= 100:
             raise ValueError("confidence_score must be between 0 and 100")
+        object.__setattr__(self, "planning_horizon", horizon)
         object.__setattr__(self, "confidence_score", round(confidence, 4))
         object.__setattr__(self, "evidence", MappingProxyType(dict(self.evidence)))
 
@@ -106,10 +111,13 @@ class TradePlan:
         values.setdefault("planner_version", "trade-planner-v1")
         values.setdefault("created_at", _utc_now())
         values.setdefault("created_by", "TradePlanningEngine")
+        values["planning_horizon"] = str(values["planning_horizon"]).upper()
         values["rationale"] = tuple(values.get("rationale", ()))
         values["warnings"] = tuple(values.get("warnings", ()))
         values["opening_plans"] = tuple(values.get("opening_plans", ()))
         values["evidence"] = MappingProxyType(dict(values.get("evidence", {})))
+        if values["planning_horizon"] not in {"NEXT_SESSION", "INTRADAY"}:
+            raise ValueError("unsupported planning_horizon")
         if values.get("direction") not in {None, "BUY", "SELL"}:
             raise ValueError("unsupported direction")
         if values.get("option_type") not in {None, "CE", "PE"}:
