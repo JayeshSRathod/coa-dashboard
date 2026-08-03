@@ -12,7 +12,7 @@ class PatternDiscoveryApiV1:
         self.service = service
 
     def get(self, pattern_id: str) -> dict:
-        record = self.service.get_pattern(pattern_id)
+        record = self.service.get(pattern_id)
         return {
             "status": 200 if record else 404,
             "data": record,
@@ -27,7 +27,7 @@ class PatternDiscoveryApiV1:
         discovery_method: str | None = None,
         limit: int = 100,
     ) -> dict:
-        rows = self.service.list_patterns(
+        rows = self.service.list(
             status=status,
             experiment_id=experiment_id,
             discovery_method=discovery_method,
