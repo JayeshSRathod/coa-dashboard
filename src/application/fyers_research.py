@@ -26,6 +26,7 @@ from src.research.collector import SnapshotCaptureService
 from src.research.validation_pipeline import ValidationResearchPipeline
 from src.research.signal_pipeline import SignalResearchPipeline
 from src.research.dynamic_structure import DynamicStructureEngine
+from src.research.capture_profile import capture_metadata
 from src.signal.engine import SignalEngine
 from src.signal.models import ResearchSignal
 from src.execution.engine import PaperExecutionEngine
@@ -322,6 +323,18 @@ class FyersResearchService:
     def _payload(snapshot: OptionChainSnapshot) -> MarketSnapshotPayload:
         strikes = sorted({contract.strike for contract in snapshot.contracts})
         atm_strike = min(strikes, key=lambda strike: abs(strike - snapshot.spot)) if strikes else None
+        provider_metadata = dict(snapshot.metadata)
+        capture_profile = str(provider_metadata.get("capture_profile") or "research_core_v1")
+        capture_evidence = capture_metadata(
+            profile=capture_profile,
+            provider_symbol=provider_metadata.get("provider_symbol"),
+            requested_expiry=provider_metadata.get("requested_expiry"),
+            resolved_expiry=snapshot.expiry or None,
+            spot=snapshot.spot,
+            atm_strike=atm_strike,
+            strikes=strikes,
+            strike_count=len(strikes),
+        )
         return MarketSnapshotPayload(
             instrument=snapshot.instrument_id,
             spot=snapshot.spot,
@@ -336,5 +349,7 @@ class FyersResearchService:
                 "quality_state": snapshot.quality.value,
                 "quality_reasons": list(snapshot.quality_reasons),
                 "provider": snapshot.provider,
+                "capture": capture_evidence,
+                "provider_metadata": provider_metadata,
             },
         )

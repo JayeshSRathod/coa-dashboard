@@ -29,7 +29,15 @@ class FyersProvider:
         started = perf_counter()
         try:
             raw = self.fetcher(self.app_id, self.access_token, request.symbol, request.strike_count)
-            snapshot = map_fyers_option_chain(raw, instrument_id=request.instrument_id, expiry=request.expiry, captured_at=_now(), latency_ms=(perf_counter() - started) * 1000)
+            snapshot = map_fyers_option_chain(
+                raw,
+                instrument_id=request.instrument_id,
+                expiry=request.expiry,
+                captured_at=_now(),
+                latency_ms=(perf_counter() - started) * 1000,
+                provider_symbol=request.symbol,
+                capture_profile=request.capture_profile,
+            )
             self._last_health = ProviderHealth(self.name, _now(), QualityState.HEALTHY, snapshot.latency_ms, 0, _now())
             return snapshot
         except Exception as exc:

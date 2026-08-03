@@ -16,6 +16,7 @@ class OptionChainRequest:
     strike_count: int = 10
     security_id: int | None = None
     segment: str | None = None
+    capture_profile: str = "research_core_v1"
 
 
 class MarketDataProvider(Protocol):
