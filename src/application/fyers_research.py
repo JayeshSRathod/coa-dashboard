@@ -21,6 +21,8 @@ from src.persistence.validation_repository import ValidationRepository
 from src.persistence.portfolio_repository import PortfolioRepository
 from src.persistence.risk_decision_repository import RiskDecisionRepository
 from src.persistence.structure_event_repository import StructureEventRepository
+from src.persistence.trade_plan_repository import TradePlanRepository
+from src.persistence.premarket_validation_repository import PreMarketValidationRepository
 from src.research.coa_pipeline import COAResearchPipeline
 from src.research.collector import SnapshotCaptureService
 from src.research.validation_pipeline import ValidationResearchPipeline
@@ -37,6 +39,9 @@ from src.risk.models import Portfolio, RiskDecision
 from src.validation.engine import ValidationEngine
 from src.validation.models import ValidationResult
 from src.analytics.models import CompletedTrade
+from src.trade_planning.service import TradePlanningService
+from src.premarket_validation.models import PreMarketObservation, PreMarketValidationResult
+from src.premarket_validation.service import PreMarketValidationService
 
 
 @dataclass(frozen=True)
@@ -46,6 +51,8 @@ class FyersResearchOutcome:
     validation_result: ValidationResult | None
     signal: ResearchSignal | None
     paper_trade_id: str | None
+    trade_plan_id: str | None = None
+    premarket_validation_id: str | None = None
     error: str | None = None
 
 
@@ -65,6 +72,8 @@ class FyersResearchService:
         self.portfolios = PortfolioRepository(self.connection)
         self.risk_decisions = RiskDecisionRepository(self.connection)
         self.structure_events = StructureEventRepository(self.connection)
+        self.trade_plans = TradePlanRepository(self.connection)
+        self.premarket_validations = PreMarketValidationRepository(self.connection)
         self.capture = SnapshotCaptureService(self.snapshots)
         self.coa = COAResearchPipeline(self.snapshots, self.coa_results, FrozenCOAAdapter())
         self.validation = ValidationResearchPipeline(
@@ -83,6 +92,10 @@ class FyersResearchService:
         ))
         self.risk_engine = PortfolioRiskEngine()
         self.dynamic_structure = DynamicStructureEngine(self.structure_events)
+        # These services are deliberately downstream of the persisted FYERS
+        # snapshot path.  They never fetch market data and never submit orders.
+        self.trade_planning = TradePlanningService(self, self.trade_plans)
+        self.premarket_validation = PreMarketValidationService(self.premarket_validations)
 
     def close(self) -> None:
         """Close this service's SQLite connection after a dashboard render."""
@@ -97,21 +110,53 @@ class FyersResearchService:
             self.market_data.append_snapshot(snapshot)
             captured = self.capture.capture_payload(self._payload(snapshot), snapshot.instrument_id)
             if not captured.stored or not captured.snapshot_id:
-                return FyersResearchOutcome(None, None, None, None, None, captured.error or "snapshot was not stored")
+                return FyersResearchOutcome(
+                    None, None, None, None, None,
+                    error=captured.error or "snapshot was not stored",
+                )
             coa = self.coa.process_snapshot_id(captured.snapshot_id)
             if not coa.success or coa.result is None:
-                return FyersResearchOutcome(captured.snapshot_id, None, None, None, None, coa.error or "COA analysis failed")
+                return FyersResearchOutcome(
+                    captured.snapshot_id, None, None, None, None,
+                    error=coa.error or "COA analysis failed",
+                )
             validation = self.validation.process_coa_result_id(coa.result.coa_result_id)
             if not validation.success or validation.result is None:
-                return FyersResearchOutcome(captured.snapshot_id, coa.result, None, None, None, validation.error or "validation failed")
+                return FyersResearchOutcome(
+                    captured.snapshot_id, coa.result, None, None, None,
+                    error=validation.error or "validation failed",
+                )
+            premarket_validation_id = self._revalidate_opening_plan(
+                captured.snapshot_id, coa.result, validation.result
+            )
             signal = self.signal.process_validation_id(validation.result.validation_id)
             if not signal.success:
-                return FyersResearchOutcome(captured.snapshot_id, coa.result, validation.result, None, None, signal.error or "signal generation failed")
+                return FyersResearchOutcome(
+                    captured.snapshot_id, coa.result, validation.result, None, None,
+                    premarket_validation_id=premarket_validation_id,
+                    error=signal.error or "signal generation failed",
+                )
             paper_trade_id = self._process_paper_signal(signal.signal, captured.snapshot_id)
             self._record_dynamic_structure(captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id)
-            return FyersResearchOutcome(captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id)
+            plan = self.trade_planning.create_latest(snapshot.instrument_id)
+            if plan is not None:
+                self.snapshots.record_event(
+                    "trade_plan_created", "INFO",
+                    {"snapshot_id": captured.snapshot_id, "trade_plan_id": plan.trade_plan_id,
+                     "readiness": plan.readiness, "planning_horizon": plan.planning_horizon,
+                     "execution_mode": "PAPER_ONLY"},
+                    snapshot.instrument_id,
+                )
+            return FyersResearchOutcome(
+                captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id,
+                trade_plan_id=plan.trade_plan_id if plan else None,
+                premarket_validation_id=premarket_validation_id,
+            )
         except Exception as exc:
-            return FyersResearchOutcome(None, None, None, None, None, f"research processing failed: {type(exc).__name__}")
+            return FyersResearchOutcome(
+                None, None, None, None, None,
+                error=f"research processing failed: {type(exc).__name__}",
+            )
 
     def latest(self, instrument_id: str) -> FyersResearchOutcome | None:
         snapshot = self.snapshots.get_latest_snapshot(instrument_id)
@@ -127,6 +172,16 @@ class FyersResearchService:
 
     def latest_snapshot(self, instrument_id: str) -> dict[str, object] | None:
         return self.snapshots.get_latest_snapshot(instrument_id)
+
+    def latest_trade_plan(self, instrument_id: str) -> dict[str, object] | None:
+        """Return an advisory persisted plan; it has no execution authority."""
+        return self.trade_plans.latest(instrument_id)
+
+    def trade_plan_history(self, instrument_id: str, limit: int = 100) -> list[dict[str, object]]:
+        return self.trade_plans.list(instrument=instrument_id, limit=limit)
+
+    def latest_premarket_validation(self, trade_plan_id: str) -> dict[str, object] | None:
+        return self.premarket_validations.latest_for_plan(trade_plan_id)
 
     def instruments(self) -> list[str]:
         rows = self.connection.execute("SELECT DISTINCT instrument FROM market_snapshots ORDER BY instrument").fetchall()
@@ -275,6 +330,96 @@ class FyersResearchService:
             signal.signal_id, self.paper_portfolio_id,
             self.risk_engine.config.risk_version, signal.experiment_id,
         )
+
+    def _revalidate_opening_plan(
+        self,
+        snapshot_id: str,
+        coa_result: COAResearchResult,
+        validation_result: ValidationResult,
+    ) -> str | None:
+        """Validate only the first persisted snapshot of a new session.
+
+        The previous plan is treated as immutable evidence.  This hook is
+        intentionally read-only with respect to paper execution: it records a
+        pre-market decision but cannot create, modify, or submit a trade.
+        """
+        snapshot = self.snapshots.get(snapshot_id)
+        if snapshot is None:
+            return None
+        session_rows = self.snapshots.list_by_session(str(snapshot["session_id"]))
+        if len(session_rows) != 1:
+            return None
+
+        prior = self.trade_plans.latest(str(snapshot["instrument"]))
+        if prior is None or prior.get("snapshot_id") == snapshot_id:
+            return None
+        source_snapshot = self.snapshots.get(str(prior["snapshot_id"]))
+        if source_snapshot is None or source_snapshot.get("session_id") == snapshot.get("session_id"):
+            return None
+
+        plan = PreMarketValidationService.plan_from_record(prior)
+        source_risk = (
+            self.risk_decisions.get(str(plan.risk_decision_id))
+            if plan.risk_decision_id else None
+        )
+        technical = dict(coa_result.raw_output.get("technical_confirmation") or
+                         coa_result.raw_output.get("technical") or {})
+        observation = PreMarketObservation(
+            trade_plan_id=plan.trade_plan_id,
+            snapshot_id=snapshot_id,
+            observed_at=str(snapshot.get("market_captured_at") or snapshot.get("captured_at")),
+            instrument=str(snapshot["instrument"]),
+            planning_horizon=plan.planning_horizon,
+            previous_close=float(source_snapshot["spot"]),
+            observed_spot=float(snapshot["spot"]),
+            coa_bias=self._coa_bias(coa_result),
+            technical_status=self._mapping_value(technical, "status", "state"),
+            technical_bias=self._mapping_value(technical, "bias", "direction"),
+            momentum_state=self._mapping_value(coa_result.momentum, "state", "classification", "bias"),
+            risk_status=source_risk.decision if source_risk is not None else "REJECTED",
+            data_quality="PASS" if snapshot.get("data_quality_status") == "VALID" else "FAILED",
+            metadata={
+                "source_session_id": source_snapshot.get("session_id"),
+                "observed_session_id": snapshot.get("session_id"),
+                "coa_result_id": coa_result.coa_result_id,
+                "validation_id": validation_result.validation_id,
+                "validation_score": validation_result.overall_score,
+                "execution_mode": "PAPER_ONLY",
+            },
+        )
+        result = self.premarket_validation.validate(plan, observation)
+        self.snapshots.record_event(
+            "premarket_plan_revalidated", "INFO",
+            {"trade_plan_id": plan.trade_plan_id, "validation_id": result.validation_id,
+             "result": result.validation_result, "selected_plan": result.selected_plan,
+             "execution_mode": "PAPER_ONLY"},
+            str(snapshot["instrument"]),
+        )
+        return result.validation_id
+
+    @staticmethod
+    def _coa_bias(coa_result: COAResearchResult) -> str:
+        direction = str(coa_result.direction or coa_result.trend or "").upper()
+        if direction in {"BUY", "BULLISH", "UP"}:
+            return "BULLISH"
+        if direction in {"SELL", "BEARISH", "DOWN"}:
+            return "BEARISH"
+        return "NEUTRAL"
+
+    @staticmethod
+    def _mapping_value(source: object, *keys: str) -> str | None:
+        if source is None:
+            return None
+        if hasattr(source, "get"):
+            for key in keys:
+                value = source.get(key)  # type: ignore[union-attr]
+                if value is not None:
+                    return str(value)
+        for key in keys:
+            value = getattr(source, key, None)
+            if value is not None:
+                return str(value)
+        return None
 
     def _all_session_trades(self):
         rows = self.connection.execute("SELECT DISTINCT session_id FROM simulated_trades ORDER BY session_id").fetchall()
