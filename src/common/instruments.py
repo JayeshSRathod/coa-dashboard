@@ -8,9 +8,12 @@ from src.market_data.contracts import OptionChainRequest
 
 
 INDEX_REQUESTS = {
-    "NIFTY": OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", "", 10),
-    "BANKNIFTY": OptionChainRequest("BANKNIFTY", "NSE:NIFTYBANK-INDEX", "", 10),
-    "FINNIFTY": OptionChainRequest("FINNIFTY", "NSE:FINNIFTY-INDEX", "", 10),
+    # The mapping is explicit so session data can prove which FYERS symbol
+    # supplied each index observation.  ``strike_count=10`` is the research
+    # core window; returned provider rows are retained without CQRP filtering.
+    "NIFTY": OptionChainRequest("NIFTY", "NSE:NIFTY50-INDEX", "", 10, capture_profile="research_core_v1"),
+    "BANKNIFTY": OptionChainRequest("BANKNIFTY", "NSE:NIFTYBANK-INDEX", "", 10, capture_profile="research_core_v1"),
+    "FINNIFTY": OptionChainRequest("FINNIFTY", "NSE:FINNIFTY-INDEX", "", 10, capture_profile="research_core_v1"),
 }
 
 

@@ -73,6 +73,8 @@ class OptionContract:
     greeks: dict[str, float] = field(default_factory=dict)
     bid: float | None = None
     ask: float | None = None
+    bid_quantity: float | None = None
+    ask_quantity: float | None = None
 
     @property
     def spread(self) -> float | None:
@@ -117,8 +119,10 @@ class OptionChainSnapshot:
                 "Call_LTP": 0.0, "Put_LTP": 0.0, "Put_Vol": 0.0, "Put_OI": 0.0,
                 "Call_Bid": None, "Call_Ask": None, "Call_OI_Change": None, "Call_IV": None,
                 "Call_Delta": None, "Call_Gamma": None, "Call_Theta": None, "Call_Vega": None,
+                "Call_Bid_Qty": None, "Call_Ask_Qty": None,
                 "Put_Bid": None, "Put_Ask": None, "Put_OI_Change": None, "Put_IV": None,
                 "Put_Delta": None, "Put_Gamma": None, "Put_Theta": None, "Put_Vega": None,
+                "Put_Bid_Qty": None, "Put_Ask_Qty": None,
             })
             if contract.option_type == "CE":
                 row.update({
@@ -127,6 +131,7 @@ class OptionChainSnapshot:
                     "Call_OI_Change": contract.oi_change, "Call_IV": contract.iv,
                     "Call_Delta": contract.greeks.get("delta"), "Call_Gamma": contract.greeks.get("gamma"),
                     "Call_Theta": contract.greeks.get("theta"), "Call_Vega": contract.greeks.get("vega"),
+                    "Call_Bid_Qty": contract.bid_quantity, "Call_Ask_Qty": contract.ask_quantity,
                 })
             elif contract.option_type == "PE":
                 row.update({
@@ -135,6 +140,7 @@ class OptionChainSnapshot:
                     "Put_OI_Change": contract.oi_change, "Put_IV": contract.iv,
                     "Put_Delta": contract.greeks.get("delta"), "Put_Gamma": contract.greeks.get("gamma"),
                     "Put_Theta": contract.greeks.get("theta"), "Put_Vega": contract.greeks.get("vega"),
+                    "Put_Bid_Qty": contract.bid_quantity, "Put_Ask_Qty": contract.ask_quantity,
                 })
         return [strikes[strike] for strike in sorted(strikes)]
 
