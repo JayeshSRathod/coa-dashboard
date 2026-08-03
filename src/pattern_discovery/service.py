@@ -26,16 +26,14 @@ class PatternDiscoveryService:
         experiment_id: str | None = None,
         source_run_id: str | None = None,
         statistics_snapshot_id: str | None = None,
-        minimum_sample_size: int = 20,
-        minimum_uplift: float = 5.0,
+        feature_keys: tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         candidates = self.engine.discover(
             evidence_records,
             experiment_id=experiment_id,
             source_run_id=source_run_id,
             statistics_snapshot_id=statistics_snapshot_id,
-            minimum_sample_size=minimum_sample_size,
-            minimum_uplift=minimum_uplift,
+            feature_keys=feature_keys,
         )
         rows: list[dict[str, Any]] = []
         for candidate in candidates:
