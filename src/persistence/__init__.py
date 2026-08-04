@@ -36,6 +36,7 @@ from .canonical_coa_repository import CanonicalCOARepository
 from .decision_repository import DecisionRepository
 from .manual_observation_repository import ManualObservationRepository
 from .structure_event_repository import StructureEventRepository
+from .scenario_track_repository import ScenarioTrackRepository
 
 
 def initialize_research_database(database_path: str) -> ResearchRepository:
@@ -220,6 +221,12 @@ def initialize_structure_event_repository(database_path: str) -> StructureEventR
     apply_migrations(connection, RESEARCH_MIGRATIONS)
     return StructureEventRepository(connection)
 
+def initialize_scenario_track_repository(database_path: str) -> ScenarioTrackRepository:
+    """Open a migrated CQRP database for combined COA scenario evidence."""
+    connection = connect(database_path)
+    apply_migrations(connection, RESEARCH_MIGRATIONS)
+    return ScenarioTrackRepository(connection)
+
 
 __all__ = [
     "AnalyticsRepository",
@@ -256,6 +263,7 @@ __all__ = [
     "DecisionRepository",
     "ManualObservationRepository",
     "StructureEventRepository",
+    "ScenarioTrackRepository",
     "apply_migrations",
     "connect",
     "initialize_analytics_repository",
@@ -283,6 +291,7 @@ __all__ = [
     "initialize_decision_repository",
     "initialize_manual_observation_repository",
     "initialize_structure_event_repository",
+    "initialize_scenario_track_repository",
     "initialize_signal_repository",
     "initialize_execution_repository",
     "initialize_exposure_repository",
