@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 
-def apply_workstation_theme(st: object) -> None:
+def apply_workstation_theme(st: object, *, theme: str = "dark") -> None:
     """Apply a local CSS theme without changing any Streamlit/domain behaviour."""
-    st.markdown(
-        """
+    palette = {
+        "dark": ("#071019", "#0d1a26", "#203447", "#e7eef7", "#91a4b8"),
+        "light": ("#f3f7fb", "#ffffff", "#cbd8e6", "#102033", "#52677d"),
+    }.get(str(theme).lower(), ("#071019", "#0d1a26", "#203447", "#e7eef7", "#91a4b8"))
+    background, panel, border, text, muted = palette
+    css = """
         <style>
-        :root { --cqrp-bg: #071019; --cqrp-panel: #0d1a26; --cqrp-border: #203447;
-                --cqrp-text: #e7eef7; --cqrp-muted: #91a4b8; --cqrp-good: #22c55e;
+        :root { --cqrp-bg: __BACKGROUND__; --cqrp-panel: __PANEL__; --cqrp-border: __BORDER__;
+                --cqrp-text: __TEXT__; --cqrp-muted: __MUTED__; --cqrp-good: #22c55e;
                 --cqrp-warn: #f59e0b; --cqrp-bad: #ef4444; --cqrp-info: #38bdf8; }
+        [data-testid="stAppViewContainer"] { background: var(--cqrp-bg); color: var(--cqrp-text); }
         .cqrp-card { background: var(--cqrp-panel); border: 1px solid var(--cqrp-border);
                       border-radius: 10px; padding: .75rem 1rem; min-height: 88px; }
         .cqrp-label { color: var(--cqrp-muted); font-size: .78rem; text-transform: uppercase; }
@@ -23,6 +28,10 @@ def apply_workstation_theme(st: object) -> None:
         .cqrp-bad { color: #450a0a; background: #fca5a5; }
         .cqrp-info { color: #082f49; background: #7dd3fc; }
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    for token, value in {
+        "__BACKGROUND__": background, "__PANEL__": panel, "__BORDER__": border,
+        "__TEXT__": text, "__MUTED__": muted,
+    }.items():
+        css = css.replace(token, value)
+    st.markdown(css, unsafe_allow_html=True)

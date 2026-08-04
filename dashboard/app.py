@@ -17,6 +17,13 @@ from dashboard.observation_page import render_observation_page
 from dashboard.structure_trails import build_level_trail, build_wall_trails
 from dashboard.option_ladder import filter_ladder_around_atm
 from dashboard.workstation import apply_workstation_theme, workstation_enabled
+from dashboard.workstation.render import (
+    render_conditional_plan,
+    render_live_cockpit,
+    render_options_intelligence,
+    render_sidebar_context,
+    render_structure_map,
+)
 from src.application.ai_service import CopilotApplicationService
 from src.configuration_console import ConfigurationConsoleService
 from src.market_data.contracts import OptionChainRequest
@@ -27,7 +34,8 @@ def main(service=None):
 
     st.set_page_config(page_title="CQRP Dashboard 2.0", layout="wide")
     if workstation_enabled():
-        apply_workstation_theme(st)
+        _workstation_main(st, service)
+        return
     page = st.sidebar.selectbox("CQRP Navigation", list(PAGES))
     instrument = st.sidebar.selectbox("Research instrument", ["NIFTY", "BANKNIFTY", "FINNIFTY"], help="Shared scope for all market-facing pages.")
     if page == "Configuration":
@@ -353,4 +361,69 @@ def _render_live_fyers_market(st,service,instrument):
  elif not status.ready:
   st.info("Add the four CQRP_FYERS_* values in Streamlit Secrets, save, and reboot the app.")
  _render_view(st,view or service.get_latest_fyers_market(instrument=instrument))
-if __name__=="__main__":main()
+
+
+def _workstation_main(st, service=None):
+    """Feature-flagged Sprints 301–304 shell; legacy Dashboard 2.0 remains untouched."""
+    pages = {
+        "Live Cockpit": "cockpit",
+        "Pre-Market Planner": "planner",
+        "Intraday Trail": "trail",
+        "Options Intelligence": "options",
+        "Paper Portfolio": "portfolio",
+        "Research Hub": "research",
+        "Analytics": "analytics",
+        "Governance": "operations",
+    }
+    st.sidebar.markdown("## CQRP-DW")
+    st.sidebar.caption("CQRP Decision Workstation · PAPER only")
+    theme = st.sidebar.radio("Theme", ("Dark", "Light"), horizontal=True, key="cqrp_workstation_theme")
+    apply_workstation_theme(st, theme=theme.lower())
+    page = st.sidebar.radio("Workstation", list(pages), key="cqrp_workstation_page")
+    instrument = st.sidebar.selectbox("Research instrument", ("NIFTY", "BANKNIFTY", "FINNIFTY"), key="cqrp_workstation_instrument")
+
+    def render(active_service):
+        dashboard = active_service.get_workstation_dashboard(instrument=instrument)
+        render_sidebar_context(st, dashboard)
+        destination = pages[page]
+        if destination == "cockpit":
+            render_live_cockpit(st, dashboard)
+        elif destination == "planner":
+            st.title("Pre-Market Planner")
+            render_conditional_plan(st, dashboard.get("plan") or {}, dashboard.get("premarket_validation"))
+            _render_view(st, active_service.get_cqrpdw_dashboard(instrument=instrument))
+        elif destination == "trail":
+            st.title("Intraday Trail")
+            render_structure_map(st, dashboard)
+        elif destination == "options":
+            st.title("Options Intelligence")
+            render_options_intelligence(st, dashboard, compact=False)
+        elif destination == "portfolio":
+            _render_view(st, active_service.get_portfolio_dashboard(instrument=instrument))
+        elif destination == "research":
+            _render_view(st, active_service.get_research_knowledge_dashboard())
+        elif destination == "analytics":
+            _render_view(st, active_service.get_performance_dashboard(instrument=instrument))
+        else:
+            _render_view(st, active_service.get_operations_dashboard(instrument=instrument))
+
+    def render_with_service():
+        active_service = service or DashboardApplicationService()
+        owns_service = service is None
+        try:
+            render(active_service)
+        finally:
+            if owns_service:
+                active_service.close()
+
+    if hasattr(st, "fragment"):
+        @st.fragment(run_every=60)
+        def auto_refresh_workstation():
+            render_with_service()
+        auto_refresh_workstation()
+    else:
+        render_with_service()
+
+
+if __name__ == "__main__":
+    main()
