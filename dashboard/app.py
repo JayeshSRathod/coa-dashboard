@@ -16,6 +16,7 @@ from dashboard.configuration_page import render_configuration_page
 from dashboard.observation_page import render_observation_page
 from dashboard.structure_trails import build_level_trail, build_wall_trails
 from dashboard.option_ladder import filter_ladder_around_atm
+from dashboard.workstation import apply_workstation_theme, workstation_enabled
 from src.application.ai_service import CopilotApplicationService
 from src.configuration_console import ConfigurationConsoleService
 from src.market_data.contracts import OptionChainRequest
@@ -25,6 +26,8 @@ def main(service=None):
     import streamlit as st
 
     st.set_page_config(page_title="CQRP Dashboard 2.0", layout="wide")
+    if workstation_enabled():
+        apply_workstation_theme(st)
     page = st.sidebar.selectbox("CQRP Navigation", list(PAGES))
     instrument = st.sidebar.selectbox("Research instrument", ["NIFTY", "BANKNIFTY", "FINNIFTY"], help="Shared scope for all market-facing pages.")
     if page == "Configuration":
