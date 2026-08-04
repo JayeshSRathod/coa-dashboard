@@ -1215,6 +1215,42 @@ def _add_dynamic_contract_context(connection: sqlite3.Connection) -> None:
         "ON dynamic_structure_events(instrument, expiry, event_type, occurred_at)"
     )
 
+
+def _add_coa_scenario_track_store(connection: sqlite3.Connection) -> None:
+    """Add immutable per-snapshot COA1/COA2 combined scenario observations."""
+    connection.executescript("""
+        CREATE TABLE IF NOT EXISTS coa_scenario_tracks (
+            scenario_track_id TEXT PRIMARY KEY,
+            snapshot_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            instrument TEXT NOT NULL,
+            coa_result_id TEXT NOT NULL,
+            structural_scenario_number INTEGER,
+            structural_scenario TEXT,
+            tactical_scenario_number INTEGER NOT NULL,
+            tactical_native_number INTEGER NOT NULL,
+            tactical_action TEXT NOT NULL,
+            catalog_version TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(snapshot_id) REFERENCES market_snapshots(snapshot_id),
+            FOREIGN KEY(coa_result_id) REFERENCES coa_results(coa_result_id),
+            UNIQUE(snapshot_id, catalog_version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_coa_scenario_tracks_session_time
+            ON coa_scenario_tracks(session_id, instrument, created_at);
+        CREATE INDEX IF NOT EXISTS idx_coa_scenario_tracks_tactical
+            ON coa_scenario_tracks(tactical_scenario_number, created_at);
+        CREATE TRIGGER IF NOT EXISTS coa_scenario_tracks_no_update
+            BEFORE UPDATE ON coa_scenario_tracks BEGIN
+            SELECT RAISE(ABORT, 'coa_scenario_tracks is append-only');
+            END;
+        CREATE TRIGGER IF NOT EXISTS coa_scenario_tracks_no_delete
+            BEFORE DELETE ON coa_scenario_tracks BEGIN
+            SELECT RAISE(ABORT, 'coa_scenario_tracks is append-only');
+            END;
+    """)
+
 RESEARCH_MIGRATIONS = (
     Migration(version=1, name="research_schema_v1", apply=_create_research_schema),
     Migration(version=2, name="market_snapshot_capture_v2", apply=_add_market_capture_fields),
@@ -1238,4 +1274,5 @@ RESEARCH_MIGRATIONS = (
     Migration(20, "manual_observation_notes", _add_manual_observation_store),
     Migration(21, "dynamic_coa_structure_events", _add_dynamic_structure_store),
     Migration(22, "dynamic_contract_context", _add_dynamic_contract_context),
+    Migration(23, "coa_combined_scenario_tracks", _add_coa_scenario_track_store),
 )

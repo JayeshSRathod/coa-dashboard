@@ -23,12 +23,15 @@ from src.persistence.risk_decision_repository import RiskDecisionRepository
 from src.persistence.structure_event_repository import StructureEventRepository
 from src.persistence.trade_plan_repository import TradePlanRepository
 from src.persistence.premarket_validation_repository import PreMarketValidationRepository
+from src.persistence.scenario_track_repository import ScenarioTrackRepository
 from src.research.coa_pipeline import COAResearchPipeline
 from src.research.collector import SnapshotCaptureService
 from src.research.validation_pipeline import ValidationResearchPipeline
 from src.research.signal_pipeline import SignalResearchPipeline
 from src.research.dynamic_structure import DynamicStructureEngine
 from src.research.capture_profile import capture_metadata
+from src.research.market_timing import is_preclose_window
+from src.research.scenario_shadow import ScenarioShadowEngine
 from src.signal.engine import SignalEngine
 from src.signal.models import ResearchSignal
 from src.execution.engine import PaperExecutionEngine
@@ -53,6 +56,7 @@ class FyersResearchOutcome:
     paper_trade_id: str | None
     trade_plan_id: str | None = None
     premarket_validation_id: str | None = None
+    scenario_track_id: str | None = None
     error: str | None = None
 
 
@@ -74,6 +78,7 @@ class FyersResearchService:
         self.structure_events = StructureEventRepository(self.connection)
         self.trade_plans = TradePlanRepository(self.connection)
         self.premarket_validations = PreMarketValidationRepository(self.connection)
+        self.scenario_tracks = ScenarioTrackRepository(self.connection)
         self.capture = SnapshotCaptureService(self.snapshots)
         self.coa = COAResearchPipeline(self.snapshots, self.coa_results, FrozenCOAAdapter())
         self.validation = ValidationResearchPipeline(
@@ -92,6 +97,7 @@ class FyersResearchService:
         ))
         self.risk_engine = PortfolioRiskEngine()
         self.dynamic_structure = DynamicStructureEngine(self.structure_events)
+        self.scenario_shadow = ScenarioShadowEngine()
         # These services are deliberately downstream of the persisted FYERS
         # snapshot path.  They never fetch market data and never submit orders.
         self.trade_planning = TradePlanningService(self, self.trade_plans)
@@ -120,6 +126,7 @@ class FyersResearchService:
                     captured.snapshot_id, None, None, None, None,
                     error=coa.error or "COA analysis failed",
                 )
+            scenario_track_id = self._record_scenario_track(captured.snapshot_id, coa.result)
             validation = self.validation.process_coa_result_id(coa.result.coa_result_id)
             if not validation.success or validation.result is None:
                 return FyersResearchOutcome(
@@ -138,19 +145,20 @@ class FyersResearchService:
                 )
             paper_trade_id = self._process_paper_signal(signal.signal, captured.snapshot_id)
             self._record_dynamic_structure(captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id)
-            plan = self.trade_planning.create_latest(snapshot.instrument_id)
+            plan = self._create_preclose_plan(captured.snapshot_id, snapshot.instrument_id)
             if plan is not None:
                 self.snapshots.record_event(
-                    "trade_plan_created", "INFO",
+                    "preclose_trade_plan_created", "INFO",
                     {"snapshot_id": captured.snapshot_id, "trade_plan_id": plan.trade_plan_id,
                      "readiness": plan.readiness, "planning_horizon": plan.planning_horizon,
-                     "execution_mode": "PAPER_ONLY"},
+                     "execution_mode": "PAPER_ONLY", "capture_window": "15:00-15:20_IST"},
                     snapshot.instrument_id,
                 )
             return FyersResearchOutcome(
                 captured.snapshot_id, coa.result, validation.result, signal.signal, paper_trade_id,
                 trade_plan_id=plan.trade_plan_id if plan else None,
                 premarket_validation_id=premarket_validation_id,
+                scenario_track_id=scenario_track_id,
             )
         except Exception as exc:
             return FyersResearchOutcome(
@@ -173,12 +181,63 @@ class FyersResearchService:
     def latest_snapshot(self, instrument_id: str) -> dict[str, object] | None:
         return self.snapshots.get_latest_snapshot(instrument_id)
 
+    def latest_scenario_track(self, instrument_id: str) -> dict[str, object] | None:
+        """Return the latest observational combined COA 1--18 track."""
+        return self.scenario_tracks.latest(instrument_id)
+
+    def backfill_scenario_tracks(self, instrument_id: str) -> int:
+        """Replay combined scenario observations without changing prior evidence."""
+        processed = 0
+        histories: dict[str, list[dict[str, object]]] = {}
+        for snapshot in self.snapshots.list_by_instrument(instrument_id):
+            coa = next(iter(self.coa_results.list_by_snapshot(snapshot["snapshot_id"])), None)
+            if coa is None:
+                continue
+            session_id = str(snapshot["session_id"])
+            history = histories.setdefault(session_id, [])
+            history.append(snapshot)
+            self._append_scenario_track(snapshot, coa, history)
+            processed += 1
+        return processed
+
     def latest_trade_plan(self, instrument_id: str) -> dict[str, object] | None:
         """Return an advisory persisted plan; it has no execution authority."""
         return self.trade_plans.latest(instrument_id)
 
     def trade_plan_history(self, instrument_id: str, limit: int = 100) -> list[dict[str, object]]:
         return self.trade_plans.list(instrument=instrument_id, limit=limit)
+
+    def _record_scenario_track(self, snapshot_id: str, coa_result: COAResearchResult) -> str:
+        snapshot = self.snapshots.get(snapshot_id)
+        if snapshot is None:
+            raise ValueError(f"snapshot {snapshot_id} was not found")
+        history = self.snapshots.list_by_session(str(snapshot["session_id"]))
+        return self._append_scenario_track(snapshot, coa_result, history)
+
+    def _append_scenario_track(self, snapshot: dict[str, object], coa_result: COAResearchResult,
+                               history: list[dict[str, object]]) -> str:
+        snapshot_id = str(snapshot["snapshot_id"])
+        existing = self.scenario_tracks.get_for_snapshot(snapshot_id, self.scenario_shadow.version)
+        if existing is not None:
+            return str(existing["scenario_track_id"])
+        record = self.scenario_shadow.evaluate(snapshot, coa_result, history)
+        track_id = self.scenario_tracks.append(record)
+        self.snapshots.record_event(
+            "coa_combined_scenario_recorded", "INFO",
+            {"snapshot_id": snapshot_id, "scenario_track_id": track_id,
+             "structural_scenario": record["structural_scenario_number"],
+             "tactical_scenario": record["tactical_scenario_number"],
+             "catalog_version": record["catalog_version"], "observation_only": True},
+            str(snapshot["instrument"]),
+        )
+        return track_id
+
+    def _create_preclose_plan(self, snapshot_id: str, instrument_id: str):
+        """Create tomorrow-plan evidence only from the 15:00--15:20 IST window."""
+        snapshot = self.snapshots.get(snapshot_id)
+        if snapshot is None or not is_preclose_window(str(snapshot["market_captured_at"])):
+            return None
+        return self.trade_planning.create_latest(instrument_id)
 
     def latest_premarket_validation(self, trade_plan_id: str) -> dict[str, object] | None:
         return self.premarket_validations.latest_for_plan(trade_plan_id)

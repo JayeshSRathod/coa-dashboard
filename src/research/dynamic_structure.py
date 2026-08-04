@@ -15,6 +15,7 @@ from engine.coa2_momentum import (
 )
 from src.common.version import DYNAMIC_STRUCTURE_VERSION
 from src.persistence.structure_event_repository import StructureEventRepository
+from src.research.scenario_catalog import combined_tactical_id
 
 
 @dataclass(frozen=True)
@@ -277,7 +278,7 @@ class DynamicStructureEngine:
         tactical = self._tactical_state(snapshot, history)
         # Combined scenario IDs are stable for analytics: COA1 is 1–9 and
         # COA2 is 10–18, while the payload retains COA2's native 1–9 ID.
-        coa2 = 9 + int(tactical["number"])
+        coa2 = combined_tactical_id(int(tactical["number"]))
         track = "COA1_PLUS_COA2" if coa1 is not None else "COA2_TACTICAL"
         outcome = "NO_PAPER_CANDIDATE"
         if paper_trade_id:
