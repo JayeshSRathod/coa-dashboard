@@ -19,6 +19,7 @@ from src.market_data.fyers_session import FyersDataSessionFactory
 from src.research.manual_observations import ManualObservationService
 from src.persistence.manual_observation_repository import ManualObservationRepository
 from .option_ladder import build_option_ladder
+from .workstation.read_models import conditional_plan, index_comparison, option_activity_rows, scenario_evidence
 
 from .view_models import DashboardView,Freshness
 def _fresh(source="local"):return Freshness(source,datetime.now(timezone.utc).isoformat(),"FRESH")
@@ -78,6 +79,32 @@ class DashboardApplicationService:
   modules=self._cqrpdw_modules(snapshot,latest,trade)
   cards={"action":action,"reason":reason,"mode":"PAPER_ONLY","phase":phase,"instrument":snapshot.get("instrument"),"spot":snapshot.get("spot"),"scenario":coa.scenario if coa else None,"risk_mode":risk_mode,"support":coa.support if coa else None,"resistance":coa.resistance if coa else None,"eos":coa.eos if coa else None,"eor":coa.eor if coa else None,"validation_score":validation.overall_score if validation else None,"confidence":validation.confidence_band if validation else None,"signal_type":signal.signal_type if signal else None,"signal_id":signal.signal_id if signal else None,"rationale":rationale,"warnings":warnings,"trade":trade,"lifecycle":trade.get("events",[]) if trade else [],"modules":modules}
   return DashboardView("CQRPDW",cards,rows,Freshness("FYERS",str(snapshot.get("market_captured_at")),"FRESH"),latest.error)
+
+ def get_workstation_dashboard(self, *, instrument="NIFTY"):
+  """Compose a read-only cockpit from existing CQRP evidence and repositories."""
+  decision=self.get_cqrpdw_dashboard(instrument=instrument)
+  snapshot=self.fyers_research.latest_snapshot(instrument)
+  if snapshot is None:
+   return {"decision":decision,"instrument":instrument,"snapshot":None,"ladder":[],"activity":[],"events":[],"walls":[],"comparison":[],"plan":conditional_plan(None),"scenario_evidence":scenario_evidence(None),"operations":{}}
+  ladder=build_option_ladder(snapshot.get("option_chain") or [], snapshot.get("spot"))
+  session_id=str(snapshot.get("session_id") or "") or None
+  modules=decision.cards.get("modules") or {}
+  plan_record=self.fyers_research.latest_trade_plan(instrument)
+  premarket=self.fyers_research.latest_premarket_validation(str(plan_record["trade_plan_id"])) if plan_record else None
+  return {
+   "decision":decision,
+   "instrument":instrument,
+   "snapshot":snapshot,
+   "ladder":ladder,
+   "activity":option_activity_rows(ladder),
+   "events":self.fyers_research.dynamic_events(instrument,session_id=session_id,limit=25_000),
+   "walls":self.fyers_research.dynamic_walls(instrument,session_id=session_id,limit=25_000),
+   "comparison":index_comparison(modules.get("decision_feed") or []),
+   "plan":conditional_plan(plan_record),
+   "premarket_validation":premarket,
+   "scenario_evidence":scenario_evidence(self.fyers_research.latest_scenario_track(instrument)),
+   "operations":modules.get("operations") or {},
+  }
 
  def _cqrpdw_modules(self,snapshot,latest,trade):
   """Compose existing non-order CQRP modules into one workstation read model."""
