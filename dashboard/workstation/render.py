@@ -15,12 +15,11 @@ from .components import metric_card, reason_list, status_badge
 def render_top_bar(st: Any, dashboard: Mapping[str, Any]) -> None:
     snapshot = dashboard.get("snapshot") or {}
     operations = dashboard.get("operations") or {}
-    status, source, version, quality, freshness = st.columns((1.1, 1.2, 1.2, 1.2, 1.5))
+    status, source, quality, freshness = st.columns((1.0, 1.0, 1.0, 1.25))
     status.markdown(status_badge("Mode", "PAPER ONLY"), unsafe_allow_html=True)
-    source.markdown(metric_card("Data source", snapshot.get("market_source") or "FYERS", note="canonical snapshot"), unsafe_allow_html=True)
-    version.markdown(metric_card("CQRP", "v2 research", note="no live execution"), unsafe_allow_html=True)
-    quality.markdown(metric_card("Data quality", snapshot.get("data_quality_status") or "Awaiting"), unsafe_allow_html=True)
-    freshness.markdown(metric_card("Last snapshot", _time(snapshot.get("market_captured_at")), note=f"Worker: {operations.get('worker') or 'LOCAL'}"), unsafe_allow_html=True)
+    source.caption(f"Source: {snapshot.get('market_source') or 'FYERS'}")
+    quality.caption(f"Quality: {snapshot.get('data_quality_status') or 'Awaiting'}")
+    freshness.caption(f"Last snapshot: {_time(snapshot.get('market_captured_at'))} | Worker: {operations.get('worker') or 'LOCAL'}")
 
 
 def render_sidebar_context(st: Any, dashboard: Mapping[str, Any]) -> None:
@@ -44,32 +43,33 @@ def render_sidebar_context(st: Any, dashboard: Mapping[str, Any]) -> None:
 def render_live_cockpit(st: Any, dashboard: Mapping[str, Any]) -> None:
     decision = dashboard["decision"]
     cards = decision.cards
-    st.subheader("Live Cockpit")
+    st.title("Live Cockpit")
     render_top_bar(st, dashboard)
     if decision.error:
         st.info(decision.error)
         return
-    left, centre, right = st.columns((1.25, 1.45, 1.4))
+    left, centre, right = st.columns((1.2, 1.45, 1.35))
     with left:
         _render_decision(st, cards)
     with centre:
         _render_index_comparison(st, dashboard.get("comparison") or [])
     with right:
         _render_market_snapshot(st, cards, dashboard.get("snapshot") or {})
-    map_column, option_column, plan_column = st.columns((1.55, 1.1, 0.8))
+    map_column, option_column, plan_column = st.columns((1.55, 1.05, 0.8))
     with map_column:
         render_structure_map(st, dashboard)
     with option_column:
         render_options_intelligence(st, dashboard, compact=True)
     with plan_column:
         render_conditional_plan(st, dashboard.get("plan") or {}, dashboard.get("premarket_validation"))
-    plan_column, portfolio_column, research_column = st.columns((1.1, 1.0, 1.0))
-    with plan_column:
-        render_tomorrow_plans(st, dashboard.get("plan") or {})
-    with portfolio_column:
-        _render_paper_portfolio(st, cards)
-    with research_column:
-        _render_research_status(st, dashboard.get("scenario_evidence") or {})
+    with st.expander("Tomorrow plan, paper portfolio and research maturity", expanded=False):
+        plan_column, portfolio_column, research_column = st.columns((1.1, 1.0, 1.0))
+        with plan_column:
+            render_tomorrow_plans(st, dashboard.get("plan") or {})
+        with portfolio_column:
+            _render_paper_portfolio(st, cards)
+        with research_column:
+            _render_research_status(st, dashboard.get("scenario_evidence") or {})
 
 
 def render_structure_map(st: Any, dashboard: Mapping[str, Any]) -> None:
@@ -88,7 +88,7 @@ def render_structure_map(st: Any, dashboard: Mapping[str, Any]) -> None:
             figure.add_trace(go.Scatter(x=[point["timestamp"] for point in points], y=values, mode="lines", name=label, connectgaps=True, line={"color": colors[field], "width": 2.7 if field == "spot" else 1.4, "dash": "solid" if field == "spot" else "dot"}))
     if markers:
         figure.add_trace(go.Scatter(x=[item["timestamp"] for item in markers], y=[item["spot"] for item in markers], mode="markers", name="Recorded event", marker={"color": "#f59e0b", "symbol": "diamond", "size": 8}, text=[item["detail"] for item in markers], hovertemplate="%{text}<br>%{x}<br>Spot: %{y:.2f}<extra></extra>"))
-    figure.update_layout(height=410, margin={"l": 18, "r": 12, "t": 26, "b": 34}, hovermode="x unified", legend={"orientation": "h", "y": -0.22}, xaxis_title="Market time", yaxis_title="Index level")
+    figure.update_layout(height=335, margin={"l": 18, "r": 12, "t": 26, "b": 34}, hovermode="x unified", legend={"orientation": "h", "y": -0.22}, xaxis_title="Market time", yaxis_title="Index level")
     st.plotly_chart(figure, width="stretch")
     st.caption("Dynamic levels are research evidence, not a trade instruction. The latest snapshot determines current levels.")
 
@@ -100,7 +100,11 @@ def render_options_intelligence(st: Any, dashboard: Mapping[str, Any], *, compac
         st.info("Awaiting a captured option chain.")
         return
     rows = [{"CE OI Δ": item.get("ce_oi_change"), "CE Vol": item.get("ce_volume"), "Strike": item.get("strike"), "PE Vol": item.get("pe_volume"), "PE OI Δ": item.get("pe_oi_change")} for item in ladder]
-    st.dataframe(rows, width="stretch", hide_index=True, height=210 if compact else None)
+    if compact:
+        with st.expander("Strike ladder", expanded=False):
+            st.dataframe(rows, width="stretch", hide_index=True, height=180)
+    else:
+        st.dataframe(rows, width="stretch", hide_index=True)
     render_option_activity(st, dashboard.get("activity") or [], dashboard.get("walls") or [])
 
 
@@ -123,7 +127,7 @@ def render_option_activity(st: Any, activity: list[Mapping[str, Any]], walls: li
     migration = _latest_wall_migration(walls or [])
     if migration:
         figure.add_annotation(x=strikes[-1], y=max([item["pe_oi"] for item in activity] or [0]), text=migration, showarrow=False, xanchor="right", yanchor="bottom", font={"size": 10, "color": "#cbd5e1"})
-    figure.update_layout(barmode="relative", height=255, margin={"l": 12, "r": 12, "t": 26, "b": 34}, legend={"orientation": "h", "y": -0.32}, xaxis_title="Strike")
+    figure.update_layout(barmode="relative", height=235, margin={"l": 12, "r": 12, "t": 26, "b": 34}, legend={"orientation": "h", "y": -0.32}, xaxis_title="Strike")
     figure.update_yaxes(title_text="OI (CE ← / PE →)", secondary_y=False)
     figure.update_yaxes(title_text="Activity", secondary_y=True)
     st.plotly_chart(figure, width="stretch")
@@ -160,12 +164,13 @@ def render_tomorrow_plans(st: Any, plan: Mapping[str, Any]) -> None:
 
 def _render_decision(st: Any, cards: Mapping[str, Any]) -> None:
     st.markdown("#### CQRP Decision")
-    st.markdown(metric_card("Action", cards.get("action"), note="research / PAPER only"), unsafe_allow_html=True)
-    st.markdown(metric_card("Validation", cards.get("validation_score"), note=str(cards.get("confidence") or "Awaiting")), unsafe_allow_html=True)
+    action, validation = st.columns(2)
+    action.markdown(metric_card("Action", cards.get("action"), note="PAPER only"), unsafe_allow_html=True)
+    validation.markdown(metric_card("Validation", cards.get("validation_score"), note=str(cards.get("confidence") or "Awaiting")), unsafe_allow_html=True)
     st.markdown("**Why CQRP gave this status**")
-    for reason in reason_list(cards.get("rationale") or [])[:5]:
+    for reason in reason_list(cards.get("rationale") or [])[:2]:
         st.caption(f"✓ {reason}")
-    for warning in reason_list(cards.get("warnings") or [])[:3]:
+    for warning in reason_list(cards.get("warnings") or [])[:1]:
         st.caption(f"! {warning}")
 
 
@@ -174,15 +179,25 @@ def _render_index_comparison(st: Any, rows: list[Mapping[str, Any]]) -> None:
     if not rows:
         st.caption("Rank only when each index has a fresh, persisted snapshot.")
         return
-    for row in rows:
-        st.markdown(metric_card(row.get("instrument") or "Index", row.get("score"), note=f"Rank {row.get('rank') or '—'} · {row.get('signal') or 'NO DATA'}"), unsafe_allow_html=True)
+    columns = st.columns(min(3, len(rows)))
+    for column, row in zip(columns, rows[:3]):
+        column.markdown(
+            metric_card(
+                row.get("instrument") or "Index",
+                row.get("score"),
+                note=f"Rank {row.get('rank') or '-'} | {row.get('signal') or 'NO DATA'}",
+            ),
+            unsafe_allow_html=True,
+        )
 
 
 def _render_market_snapshot(st: Any, cards: Mapping[str, Any], snapshot: Mapping[str, Any]) -> None:
     st.markdown("#### Market Snapshot")
-    for label, value in (("Spot", cards.get("spot")), ("Support", cards.get("support")), ("Resistance", cards.get("resistance")), ("EOS", cards.get("eos")), ("EOR", cards.get("eor"))):
-        st.markdown(metric_card(label, value), unsafe_allow_html=True)
-    st.caption(f"Execution quality is determined from quote coverage and liquidity validation. Source: {snapshot.get('market_source') or 'FYERS'}.")
+    metrics = (("Spot", cards.get("spot")), ("Support", cards.get("support")), ("Resistance", cards.get("resistance")), ("EOS", cards.get("eos")), ("EOR", cards.get("eor")))
+    top, bottom = st.columns(2), st.columns(3)
+    for column, (label, value) in zip((*top, *bottom), metrics):
+        column.markdown(metric_card(label, value), unsafe_allow_html=True)
+    st.caption(f"Source: {snapshot.get('market_source') or 'FYERS'} | quote coverage and liquidity determine execution quality.")
 
 
 def _render_paper_portfolio(st: Any, cards: Mapping[str, Any]) -> None:

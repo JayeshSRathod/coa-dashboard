@@ -16,11 +16,14 @@ def apply_workstation_theme(st: object, *, theme: str = "dark") -> None:
                 --cqrp-text: __TEXT__; --cqrp-muted: __MUTED__; --cqrp-good: #22c55e;
                 --cqrp-warn: #f59e0b; --cqrp-bad: #ef4444; --cqrp-info: #38bdf8; }
         [data-testid="stAppViewContainer"] { background: var(--cqrp-bg); color: var(--cqrp-text); }
+        [data-testid="stMainBlockContainer"], .block-container {
+            max-width: 100%; padding-top: 1rem; padding-bottom: 1rem;
+        }
         .cqrp-card { background: var(--cqrp-panel); border: 1px solid var(--cqrp-border);
-                      border-radius: 10px; padding: .75rem 1rem; min-height: 88px; }
+                      border-radius: 8px; padding: .45rem .65rem; min-height: 60px; }
         .cqrp-label { color: var(--cqrp-muted); font-size: .78rem; text-transform: uppercase; }
-        .cqrp-value { color: var(--cqrp-text); font-size: 1.25rem; font-weight: 650; }
-        .cqrp-note { color: var(--cqrp-muted); font-size: .78rem; margin-top: .2rem; }
+        .cqrp-value { color: var(--cqrp-text); font-size: 1.1rem; font-weight: 650; }
+        .cqrp-note { color: var(--cqrp-muted); font-size: .72rem; margin-top: .1rem; }
         .cqrp-badge { display: inline-block; border-radius: 999px; font-size: .75rem;
                        font-weight: 650; padding: .15rem .5rem; }
         .cqrp-good { color: #052e16; background: #86efac; }
