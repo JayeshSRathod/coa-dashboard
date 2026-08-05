@@ -32,7 +32,11 @@ INSTRUMENT_SCOPED_PAGES={"CQRPDW","Market Intelligence","Scanner","COA Research"
 def main(service=None):
     import streamlit as st
 
-    st.set_page_config(page_title="CQRP Dashboard 2.0", layout="wide")
+    st.set_page_config(
+        page_title="CQRP Dashboard 2.0",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     if workstation_enabled():
         _workstation_main(st, service)
         return
