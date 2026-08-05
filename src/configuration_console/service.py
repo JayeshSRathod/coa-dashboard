@@ -21,6 +21,13 @@ BROKER_FIELDS = {
     "fyers": ("app_id", "secret_key", "redirect_uri", "access_token"),
     "telegram": ("bot_token", "chat_id"),
 }
+TELEGRAM_TOPIC_KEYS = (
+    "system_health",
+    "market_decisions",
+    "preclose_plan",
+    "paper_portfolio",
+    "daily_research",
+)
 
 
 class UnsafeExecutionModeError(ValueError):
@@ -57,8 +64,61 @@ class ConfigurationConsoleService:
             "execution": dict(state["execution"]),
             "operations": dict(state["operations"]),
             "local_ai": dict(state["local_ai"]),
+            "telegram_notifications": dict(state["telegram_notifications"]),
             "history": list(state["history"]),
         }
+
+    def telegram_delivery_settings(self) -> dict[str, Any]:
+        """Return ephemeral delivery settings for the notification runtime only.
+
+        Raw values are intentionally excluded from public configuration, audit
+        history, logs, and persistence.  This method is not a dashboard view.
+        """
+        state = self._read_state()
+        broker = state["brokers"].get("telegram", {})
+        notifications = dict(state["telegram_notifications"])
+        return {
+            "enabled": bool(broker.get("enabled", False) and notifications.get("enabled", False)),
+            "bot_token": self.secret_store.get(self._secret_name("telegram", "bot_token")),
+            "chat_id": self.secret_store.get(self._secret_name("telegram", "chat_id")),
+            "heartbeat_minutes": int(notifications.get("heartbeat_minutes", 30)),
+            "topics": dict(notifications.get("topics", {})),
+        }
+
+    def save_telegram_notifications(
+        self,
+        *,
+        enabled: bool,
+        heartbeat_minutes: int = 30,
+        topics: Mapping[str, int | str | None] | None = None,
+        actor: str = "local-dashboard",
+    ) -> dict[str, Any]:
+        """Save non-secret Telegram routing metadata for PAPER research reports."""
+        if not 5 <= int(heartbeat_minutes) <= 240:
+            raise ValueError("Telegram heartbeat interval must be between 5 and 240 minutes.")
+        normalized_topics: dict[str, int] = {}
+        for key, value in dict(topics or {}).items():
+            if key not in TELEGRAM_TOPIC_KEYS:
+                raise ValueError(f"Unsupported Telegram topic: {key}")
+            if value in (None, ""):
+                continue
+            topic_id = int(value)
+            if topic_id <= 0:
+                raise ValueError("Telegram topic IDs must be positive integers.")
+            normalized_topics[key] = topic_id
+        state = self._read_state()
+        state["telegram_notifications"] = {
+            "enabled": bool(enabled),
+            "heartbeat_minutes": int(heartbeat_minutes),
+            "topics": normalized_topics,
+        }
+        self._record(state, "telegram_notifications_saved", "telegram", actor, {
+            "enabled": bool(enabled),
+            "heartbeat_minutes": int(heartbeat_minutes),
+            "configured_topics": sorted(normalized_topics),
+        })
+        self._write_state(state)
+        return dict(state["telegram_notifications"])
 
     def save_broker(self, provider: str, *, enabled: bool,
                     credentials: Mapping[str, str | None], actor: str = "local-dashboard") -> dict[str, Any]:
@@ -167,6 +227,7 @@ class ConfigurationConsoleService:
             # Local models are opt-in because they can consume substantial CPU,
             # RAM, and GPU resources.  CQRP works fully without them.
             "local_ai": {"ollama_enabled": False},
+            "telegram_notifications": {"enabled": False, "heartbeat_minutes": 30, "topics": {}},
             "history": [],
         }
         if not self.configuration_path.exists():

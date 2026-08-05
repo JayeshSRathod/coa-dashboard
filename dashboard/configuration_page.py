@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from src.configuration_console.service import ConfigurationConsoleService
 from src.configuration_console.secrets import SecretStoreUnavailable
+from src.notifications import TelegramNotificationClient
 
 
 def render_configuration_page(service: ConfigurationConsoleService | None = None) -> None:
@@ -27,6 +28,7 @@ def render_configuration_page(service: ConfigurationConsoleService | None = None
         _render_provider(st, service, state, "fyers", "Fyers", ("app_id", "secret_key", "redirect_uri", "access_token"))
     with telegram_tab:
         _render_provider(st, service, state, "telegram", "Telegram", ("bot_token", "chat_id"))
+        _render_telegram_reporting(st, service, state)
     with execution_tab:
         current = state["execution"]["execution_mode"]
         mode = st.selectbox("Execution mode", ["DISABLED", "PAPER"], index=["DISABLED", "PAPER"].index(current))
@@ -100,3 +102,35 @@ def _render_provider(st, service: ConfigurationConsoleService, state: dict, prov
                 st.error(f"{label} settings were not saved securely: {exc}")
             except Exception as exc:
                 st.error(f"{label} settings were not saved: {exc}")
+
+
+def _render_telegram_reporting(st, service: ConfigurationConsoleService, state: dict) -> None:
+    settings = state["telegram_notifications"]
+    st.subheader("PAPER research reporting")
+    st.caption("Topic IDs are optional. Leave a topic blank to send to the group General topic. "
+               "CQRP never sends broker orders or raw credentials through Telegram.")
+    with st.form("telegram-reporting-settings"):
+        enabled = st.checkbox("Enable Telegram reports", value=bool(settings["enabled"]))
+        heartbeat = st.number_input("Health heartbeat (minutes)", min_value=5, max_value=240,
+                                    value=int(settings["heartbeat_minutes"]))
+        topics = {}
+        labels = {
+            "system_health": "System Health",
+            "market_decisions": "Market & Decisions",
+            "preclose_plan": "Pre-Close & Tomorrow Plan",
+            "paper_portfolio": "Paper Portfolio",
+            "daily_research": "Daily & Weekly Research",
+        }
+        for key, label in labels.items():
+            topics[key] = st.text_input(f"Topic ID — {label}", value=str(settings["topics"].get(key, "")))
+        saved = st.form_submit_button("Save Telegram reporting")
+    if saved:
+        try:
+            service.save_telegram_notifications(enabled=enabled, heartbeat_minutes=int(heartbeat), topics=topics)
+            st.success("Telegram report routing saved. Credentials remain masked.")
+        except Exception as exc:
+            st.error(f"Telegram report routing was not saved: {exc}")
+    if st.button("Send PAPER-only Telegram test", key="telegram-paper-test"):
+        result = TelegramNotificationClient(service).send_test()
+        message = f"Telegram test: {result.status} — {result.reason}"
+        (st.success if result.status == "SENT" else st.warning)(message)

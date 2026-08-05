@@ -16,11 +16,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.application.fyers_research import FyersResearchService
-from src.application.fyers_worker import FyersUniversePollingWorker
+from src.application.fyers_worker import FyersUniversePollingWorker, market_is_open
 from src.common.instruments import configured_index_requests
+from src.configuration_console.service import ConfigurationConsoleService
 from src.configuration_console.secrets import CompositeSecretStore
 from src.market_data.contracts import OptionChainRequest
 from src.market_data.fyers_session import FyersDataSessionFactory
+from src.notifications import ResearchReportDispatcher, TelegramNotificationClient
 
 
 def _database_path() -> Path:
@@ -39,10 +41,17 @@ def main() -> None:
     research = FyersResearchService(_database_path())
     requests = configured_index_requests()
     worker = FyersUniversePollingWorker(FyersDataSessionFactory(CompositeSecretStore()), research, requests)
+    configuration = ConfigurationConsoleService()
+    notifier = TelegramNotificationClient(configuration)
+    dispatcher = ResearchReportDispatcher(
+        notifier, heartbeat_minutes=configuration.telegram_delivery_settings()["heartbeat_minutes"]
+    )
     stop = Event()
+    was_open = False
     print(f"CQRP local FYERS worker started: instruments={','.join(request.instrument_id for request in requests)} | interval={args.interval_seconds:g}s | mode=PAPER_ONLY")
     try:
         while not stop.is_set():
+            is_open = market_is_open()
             cycle = worker.run_once()
             for item in cycle.cycles:
                 if item.error:
@@ -51,10 +60,16 @@ def main() -> None:
                     outcome = item.outcome
                     signal_type = outcome.signal.signal_type if outcome and outcome.signal else "UNAVAILABLE"
                     print(f"{item.captured_at} | snapshot={outcome.snapshot_id if outcome else None} | signal={signal_type} | paper_trade={outcome.paper_trade_id if outcome else None}")
+            if is_open:
+                dispatcher.observe_cycle(cycle)
+            elif was_open:
+                dispatcher.close_session()
+            was_open = is_open
             if args.once:
                 return
             stop.wait(args.interval_seconds)
     except KeyboardInterrupt:
+        dispatcher.close_session()
         print("\nCQRP FYERS worker stopped.")
 
 

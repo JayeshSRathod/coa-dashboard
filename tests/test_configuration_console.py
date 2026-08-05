@@ -81,6 +81,24 @@ class ConfigurationConsoleTests(unittest.TestCase):
         self.assertTrue(all(public["credentials"].values()))
         self.assertEqual(self.secrets.get("CQRP_FYERS_ACCESS_TOKEN"), "daily-token")
 
+    def test_telegram_routing_metadata_is_audited_without_credentials(self) -> None:
+        self.service.save_broker("telegram", enabled=True, credentials={
+            "bot_token": "telegram-token", "chat_id": "chat-123",
+        })
+        saved = self.service.save_telegram_notifications(
+            enabled=True, heartbeat_minutes=30,
+            topics={"system_health": "11", "daily_research": "22"},
+        )
+        persisted = self.path.read_text(encoding="utf-8")
+        runtime = self.service.telegram_delivery_settings()
+        self.assertEqual(saved["topics"]["system_health"], 11)
+        self.assertTrue(runtime["enabled"])
+        self.assertEqual(runtime["bot_token"], "telegram-token")
+        self.assertNotIn("telegram-token", persisted)
+        self.assertIn("system_health", persisted)
+        with self.assertRaises(ValueError):
+            self.service.save_telegram_notifications(enabled=True, heartbeat_minutes=3)
+
     def test_unavailable_local_keyring_is_treated_as_absent_for_reading(self) -> None:
         class UnavailableStore:
             def get(self, name):
