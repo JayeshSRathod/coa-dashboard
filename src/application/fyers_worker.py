@@ -17,6 +17,7 @@ class WorkerCycle:
     captured_at: str
     outcome: FyersResearchOutcome | None
     error: str | None = None
+    instrument_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,15 +40,15 @@ class FyersPollingWorker:
 
     def run_once(self) -> WorkerCycle:
         if not self.market_open():
-            return WorkerCycle(_now(), None, "market is closed; capture skipped")
+            return WorkerCycle(_now(), None, "market is closed; capture skipped", self.request.instrument_id)
         status = self.session_factory.status()
         if not status.ready:
-            return WorkerCycle(_now(), None, status.reason)
+            return WorkerCycle(_now(), None, status.reason, self.request.instrument_id)
         try:
             snapshot = self.session_factory.provider().fetch_option_chain(self.request)
-            return WorkerCycle(snapshot.captured_at, self.research.process(snapshot))
+            return WorkerCycle(snapshot.captured_at, self.research.process(snapshot), instrument_id=self.request.instrument_id)
         except Exception as exc:
-            return WorkerCycle(_now(), None, f"FYERS capture failed: {type(exc).__name__}")
+            return WorkerCycle(_now(), None, f"FYERS capture failed: {type(exc).__name__}", self.request.instrument_id)
 
 
 class FyersUniversePollingWorker:
